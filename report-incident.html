@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Report Incident | Cybersecurity Incident Reporting System</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <header class="header" id="app-header"></header>
+    <p class="notice-bar">Academic Prototype &mdash; simulated authentication and browser localStorage. Not for production use.</p>
+    <div class="layout">
+      <nav class="sidebar" id="app-sidebar" aria-label="Main navigation"></nav>
+      <main class="main">
+        <h1 class="page-title">Report Incident</h1>
+        <p class="page-lead">Submit a new security incident for review.</p>
+        <div id="page-alert" role="status" aria-live="polite"></div>
+
+        <form class="card" id="incident-form" novalidate>
+          <div class="form-grid grid-2">
+            <div>
+              <label class="label" for="title">Incident Title <span aria-hidden="true">*</span></label>
+              <input class="input" type="text" id="title" name="title" required
+                     maxlength="120" aria-describedby="title-error" />
+              <p class="field-error" id="title-error" aria-live="polite"></p>
+            </div>
+            <div>
+              <label class="label" for="type">Incident Type <span aria-hidden="true">*</span></label>
+              <select class="select" id="type" name="type" required aria-describedby="type-error">
+                <option value="">Select a type</option>
+                <option>Phishing</option>
+                <option>Malware</option>
+                <option>Unauthorized Access</option>
+                <option>Data Breach</option>
+                <option>Account Compromise</option>
+                <option>Lost/Stolen Device</option>
+                <option>Other</option>
+              </select>
+              <p class="field-error" id="type-error" aria-live="polite"></p>
+            </div>
+            <div>
+              <label class="label" for="severity">Severity <span aria-hidden="true">*</span></label>
+              <select class="select" id="severity" name="severity" required aria-describedby="severity-error">
+                <option value="">Select a severity</option>
+                <option>Low</option>
+                <option>Medium</option>
+                <option>High</option>
+                <option>Critical</option>
+              </select>
+              <p class="field-error" id="severity-error" aria-live="polite"></p>
+            </div>
+            <div>
+              <label class="label" for="dateTime">Date/Time of Incident <span aria-hidden="true">*</span></label>
+              <input class="input" type="datetime-local" id="dateTime" name="dateTime" required
+                     aria-describedby="dateTime-error" />
+              <p class="field-error" id="dateTime-error" aria-live="polite"></p>
+            </div>
+          </div>
+
+          <div class="form-group mt-2">
+            <label class="label" for="affectedSystem">Affected System / Location</label>
+            <input class="input" type="text" id="affectedSystem" name="affectedSystem" maxlength="160" />
+          </div>
+
+          <div class="form-group">
+            <label class="label" for="description">Description <span aria-hidden="true">*</span></label>
+            <textarea class="textarea" id="description" name="description" rows="5" required
+                      maxlength="4000" aria-describedby="description-error"></textarea>
+            <p class="field-error" id="description-error" aria-live="polite"></p>
+          </div>
+
+          <div class="form-group">
+            <label class="label" for="evidence">Evidence / Reference</label>
+            <textarea class="textarea" id="evidence" name="evidence" rows="3" maxlength="2000"
+                      placeholder="Log references, emails, screenshots or ticket numbers"></textarea>
+          </div>
+
+          <div class="action-row">
+            <button class="btn" type="submit">Submit Incident</button>
+            <a class="btn btn-secondary" href="reporter-dashboard.html">Cancel</a>
+          </div>
+        </form>
+
+        <section class="card mt-2" id="success-box" hidden aria-live="polite">
+          <h2 class="section-title">Incident submitted</h2>
+          <p id="success-message"></p>
+          <a class="btn" id="success-link" href="#">View incident</a>
+        </section>
+      </main>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/seed.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+      seedIfMissing();
+      const user = requireAuth(['REPORTER']);
+      if (user) {
+        renderLayout('report');
+        const form = document.getElementById('incident-form');
+        const alertBox = document.getElementById('page-alert');
+
+        function setError(id, message) {
+          document.getElementById(id + '-error').textContent = message || '';
+          document.getElementById(id).setAttribute('aria-invalid', message ? 'true' : 'false');
+        }
+
+        // form.elements is used instead of form.<name> because some control
+        // names (title, type) collide with properties of the form element.
+        const fields = form.elements;
+
+        function validate() {
+          let ok = true;
+          const title = fields.title.value.trim();
+          const type = fields.type.value;
+          const severity = fields.severity.value;
+          const dateTime = fields.dateTime.value;
+          const description = fields.description.value.trim();
+
+          setError('title', '');
+          setError('type', '');
+          setError('severity', '');
+          setError('dateTime', '');
+          setError('description', '');
+
+          if (!title) {
+            setError('title', 'Incident title is required.');
+            ok = false;
+          } else if (title.length < 5) {
+            setError('title', 'Incident title must be at least 5 characters long.');
+            ok = false;
+          } else if (title.length > 120) {
+            setError('title', 'Incident title must be 120 characters or fewer.');
+            ok = false;
+          }
+
+          if (!type) {
+            setError('type', 'Select an incident type.');
+            ok = false;
+          }
+          if (!severity) {
+            setError('severity', 'Select a severity level.');
+            ok = false;
+          }
+          if (!dateTime) {
+            setError('dateTime', 'Enter the date and time of the incident.');
+            ok = false;
+          } else if (isNaN(new Date(dateTime).getTime())) {
+            setError('dateTime', 'Enter a valid date and time.');
+            ok = false;
+          }
+          if (!description) {
+            setError('description', 'Description is required.');
+            ok = false;
+          } else if (description.length < 20) {
+            setError('description', 'Please provide at least 20 characters of description.');
+            ok = false;
+          }
+          return ok;
+        }
+
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          alertBox.innerHTML = '';
+          if (!validate()) {
+            showAlert(alertBox, 'error', 'Please correct the highlighted fields and try again.');
+            return;
+          }
+
+          const incident = createIncident({
+            title: fields.title.value.trim(),
+            type: fields.type.value,
+            severity: fields.severity.value,
+            dateTime: toISODateTime(fields.dateTime.value),
+            affectedSystem: fields.affectedSystem.value.trim(),
+            description: fields.description.value.trim(),
+            evidence: fields.evidence.value.trim(),
+            reportedBy: user.email,
+          });
+
+          // Notify administrators that a new incident is waiting for review.
+          loadUsers()
+            .filter((u) => u.role === 'ADMINISTRATOR')
+            .forEach((admin) => notify(admin.id, incident.id, `Incident ${incident.id} has been submitted and is awaiting review.`));
+
+          form.reset();
+          document.getElementById('success-box').hidden = false;
+          document.getElementById('success-message').innerHTML =
+            `Incident <strong>${escapeHtml(incident.id)}</strong> has been submitted successfully. Its status is <strong>SUBMITTED</strong>.`;
+          document.getElementById('success-link').href =
+            'incident-details.html?id=' + encodeURIComponent(incident.id);
+          document.getElementById('success-box').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      }
+    </script>
+  </body>
+</html>

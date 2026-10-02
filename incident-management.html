@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Incident Management | Cybersecurity Incident Reporting System</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <header class="header" id="app-header"></header>
+    <p class="notice-bar">Academic Prototype &mdash; simulated authentication and browser localStorage. Not for production use.</p>
+    <div class="layout">
+      <nav class="sidebar" id="app-sidebar" aria-label="Main navigation"></nav>
+      <main class="main">
+        <h1 class="page-title">Incident Management</h1>
+        <p class="page-lead">Review, categorise, assign, resolve and close incidents.</p>
+        <div id="page-alert" role="status" aria-live="polite"></div>
+
+        <form class="filters card" id="filter-form" role="search">
+          <div class="field">
+            <label class="label" for="search">Search</label>
+            <input class="input" type="search" id="search" placeholder="ID, title, reporter" />
+          </div>
+          <div class="field">
+            <label class="label" for="status-filter">Status</label>
+            <select class="select" id="status-filter">
+              <option value="">All statuses</option>
+              <option>SUBMITTED</option>
+              <option>UNDER_REVIEW</option>
+              <option>UNDER_INVESTIGATION</option>
+              <option>RESOLVED</option>
+              <option>CLOSED</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="label" for="severity-filter">Severity</label>
+            <select class="select" id="severity-filter">
+              <option value="">All severities</option>
+              <option>Low</option>
+              <option>Medium</option>
+              <option>High</option>
+              <option>Critical</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="label" for="type-filter">Type</label>
+            <select class="select" id="type-filter">
+              <option value="">All types</option>
+              <option>Phishing</option>
+              <option>Malware</option>
+              <option>Unauthorized Access</option>
+              <option>Data Breach</option>
+              <option>Account Compromise</option>
+              <option>Lost/Stolen Device</option>
+              <option>Other</option>
+            </select>
+          </div>
+          <button class="btn btn-secondary" type="reset">Clear</button>
+        </form>
+
+        <div id="incident-table" aria-live="polite"></div>
+
+        <section class="card mt-2" id="manager-panel" hidden aria-live="polite">
+          <h2 class="section-title" id="panel-title">Manage Incident</h2>
+          <div id="panel-body"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/seed.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+      seedIfMissing();
+      const user = requireAuth(['ADMINISTRATOR']);
+      if (user) {
+        renderLayout('manage');
+
+        const alertBox = document.getElementById('page-alert');
+        const tableHost = document.getElementById('incident-table');
+        const panel = document.getElementById('manager-panel');
+        const panelBody = document.getElementById('panel-body');
+        const panelTitle = document.getElementById('panel-title');
+        const search = document.getElementById('search');
+        const statusFilter = document.getElementById('status-filter');
+        const severityFilter = document.getElementById('severity-filter');
+        const typeFilter = document.getElementById('type-filter');
+
+        const TYPES = ['Phishing', 'Malware', 'Unauthorized Access', 'Data Breach', 'Account Compromise', 'Lost/Stolen Device', 'Other'];
+        const SEVERITIES = ['Low', 'Medium', 'High', 'Critical'];
+
+        function investigators() {
+          return availableInvestigators();
+        }
+
+        function renderTable() {
+          const term = search.value.trim().toLowerCase();
+          const rows = loadIncidents()
+            .filter((i) => !term || (i.id + ' ' + i.title + ' ' + i.reportedBy + ' ' + (i.assignedInvestigator || '')).toLowerCase().includes(term))
+            .filter((i) => !statusFilter.value || i.status === statusFilter.value)
+            .filter((i) => !severityFilter.value || i.severity === severityFilter.value)
+            .filter((i) => !typeFilter.value || i.type === typeFilter.value)
+            .sort((a, b) => (a.id < b.id ? 1 : -1));
+
+          if (!rows.length) {
+            tableHost.innerHTML = '<p class="empty-state">No incidents match the current filters.</p>';
+            return;
+          }
+
+          tableHost.innerHTML = `<div class="table-wrapper"><table>
+            <caption class="sr-only">All reported incidents</caption>
+            <thead><tr>
+              <th scope="col">ID</th><th scope="col">Title</th><th scope="col">Type</th>
+              <th scope="col">Severity</th><th scope="col">Status</th><th scope="col">Reporter</th>
+              <th scope="col">Investigator</th><th scope="col">Action</th>
+            </tr></thead>
+            <tbody>${rows
+              .map(
+                (i) => `<tr>
+                  <td>${escapeHtml(i.id)}</td>
+                  <td>${escapeHtml(i.title)}</td>
+                  <td>${badgeType(i.type)}</td>
+                  <td>${badgeSeverity(i.severity)}</td>
+                  <td>${badgeStatus(i.status)}</td>
+                  <td>${escapeHtml(i.reportedBy)}</td>
+                  <td>${escapeHtml(i.assignedInvestigator || 'Unassigned')}</td>
+                  <td>
+                    <a href="incident-management.html?id=${encodeURIComponent(i.id)}" data-manage="${escapeHtml(i.id)}">Manage</a>
+                    &middot;
+                    <a href="incident-details.html?id=${encodeURIComponent(i.id)}">Details</a>
+                  </td>
+                </tr>`
+              )
+              .join('')}</tbody></table></div>`;
+
+          tableHost.querySelectorAll('[data-manage]').forEach(function (a) {
+            a.addEventListener('click', function (e) {
+              e.preventDefault();
+              openPanel(a.getAttribute('data-manage'));
+            });
+          });
+        }
+
+        // Builds the management panel with only the workflow actions valid for the current status.
+        function openPanel(id) {
+          const incident = getIncidentById(id);
+          if (!incident) {
+            showAlert(alertBox, 'error', 'That incident could not be found.');
+            return;
+          }
+          const inv = getInvestigation(incident.id);
+          const res = getResolution(incident.id);
+          const invUsers = investigators();
+
+          panelTitle.textContent = 'Manage ' + incident.id + ' — ' + incident.title;
+          const parts = [];
+
+          // Status timeline
+          const idx = statusIndex(incident.status);
+          parts.push(
+            '<div class="timeline mb-4">' +
+              STATUS_FLOW.map((s, i) => {
+                const cls = 'timeline-step' + (i === idx ? ' active' : '');
+                return (i > 0 ? '<span class="timeline-arrow" aria-hidden="true">&rarr;</span>' : '') +
+                  '<span class="' + cls + '">' + escapeHtml(s.replace(/_/g, ' ')) + '</span>';
+              }).join('') +
+              '</div>'
+          );
+
+          // Incident information shown for review
+          parts.push(
+            '<h3 class="section-title">Incident information</h3>' +
+            '<dl class="detail-grid mb-2">' +
+            '<div class="detail-item"><dt>Incident</dt><dd>' + escapeHtml(incident.id) + ' &mdash; ' + escapeHtml(incident.title) + '</dd></div>' +
+            '<div class="detail-item"><dt>Current status</dt><dd>' + badgeStatus(incident.status) + '</dd></div>' +
+            '<div class="detail-item"><dt>Incident type</dt><dd>' + badgeType(incident.type) + '</dd></div>' +
+            '<div class="detail-item"><dt>Severity</dt><dd>' + badgeSeverity(incident.severity) + '</dd></div>' +
+            '<div class="detail-item"><dt>Reported by</dt><dd>' + escapeHtml(incident.reportedBy) + '</dd></div>' +
+            '<div class="detail-item"><dt>Date/time reported</dt><dd>' + escapeHtml(formatDate(incident.dateTime)) + '</dd></div>' +
+            '<div class="detail-item"><dt>Assigned investigator</dt><dd>' +
+            escapeHtml(incident.assignedInvestigator || 'Not yet assigned') + '</dd></div>' +
+            '<div class="detail-item"><dt>Affected system / location</dt><dd>' +
+            escapeHtml(incident.affectedSystem || 'Not specified') + '</dd></div>' +
+            '</dl>' +
+            '<div class="detail-item mb-2"><dt>Description</dt><dd>' + escapeHtml(incident.description) + '</dd></div>' +
+            '<div class="detail-item"><dt>Evidence / reference supplied by reporter</dt><dd>' +
+            escapeHtml(incident.evidence || 'None supplied') + '</dd></div>'
+          );
+
+          // Categorisation and severity (allowed at any open stage)
+          const canTriage = statusIndex(incident.status) <= statusIndex('UNDER_REVIEW');
+          parts.push(
+            '<h3 class="section-title">Triage</h3>' +
+              '<form class="inline-form mb-4" id="triage-form">' +
+                '<div><label class="label" for="triage-type">Incident type</label>' +
+                  '<select class="select" id="triage-type"' + (canTriage ? '' : ' disabled') + '>' +
+                  TYPES.map((t) => '<option' + (t === incident.type ? ' selected' : '') + '>' + escapeHtml(t) + '</option>').join('') +
+                  '</select></div>' +
+                '<div><label class="label" for="triage-severity">Severity</label>' +
+                  '<select class="select" id="triage-severity"' + (canTriage ? '' : ' disabled') + '>' +
+                  SEVERITIES.map((s) => '<option' + (s === incident.severity ? ' selected' : '') + '>' + escapeHtml(s) + '</option>').join('') +
+                  '</select></div>' +
+                '<button class="btn" type="submit"' + (canTriage ? '' : ' disabled') + '>Save triage</button>' +
+                (canTriage ? '' : '<span class="readonly-note">Triage can only be changed while the incident is SUBMITTED or UNDER_REVIEW.</span>') +
+              '</form>'
+          );
+
+          // Workflow actions
+          parts.push('<h3 class="section-title">Workflow actions</h3><div class="action-row mb-4">');
+          if (incident.status === 'SUBMITTED') {
+            parts.push('<button class="btn" type="button" data-action="review">Start review (SUBMITTED &rarr; UNDER_REVIEW)</button>');
+          } else if (incident.status === 'UNDER_REVIEW') {
+            parts.push('<span class="readonly-note">This incident is under review. Assign an investigator to begin the investigation stage.</span>');
+          } else if (incident.status === 'UNDER_INVESTIGATION') {
+            parts.push('<span class="readonly-note">Investigation in progress. Resolution can be recorded once the investigator completes their work.</span>');
+            if (inv && inv.status === 'COMPLETED') {
+              parts.push('<a class="btn" href="resolution.html?id=' + encodeURIComponent(incident.id) + '">Record resolution</a>');
+            } else {
+              parts.push('<span class="readonly-note">Awaiting completed investigation.</span>');
+            }
+          } else if (incident.status === 'RESOLVED') {
+            parts.push('<a class="btn" href="resolution.html?id=' + encodeURIComponent(incident.id) + '">Open resolution &amp; close</a>');
+          } else {
+            parts.push('<span class="readonly-note">This incident is closed. No further workflow actions are available.</span>');
+          }
+          parts.push('</div>');
+
+          // Assignment
+          if (incident.status === 'UNDER_REVIEW' || incident.status === 'UNDER_INVESTIGATION') {
+            const current = incident.assignedInvestigator || '';
+            const options = invUsers
+              .map(
+                (u) =>
+                  '<option value="' + escapeHtml(u.email) + '"' + (u.email === current ? ' selected' : '') + '>' +
+                  escapeHtml(u.fullName) + ' (' + escapeHtml(u.email) + ')</option>'
+              )
+              .join('');
+            parts.push(
+              '<h3 class="section-title mt-4">Investigator assignment</h3>' +
+              '<dl class="detail-grid mb-2">' +
+              '<div class="detail-item"><dt>Incident</dt><dd>' + escapeHtml(incident.id) + ' &mdash; ' + escapeHtml(incident.title) + '</dd></div>' +
+              '<div class="detail-item"><dt>Current status</dt><dd>' + badgeStatus(incident.status) + '</dd></div>' +
+              '<div class="detail-item"><dt>Assigned investigator</dt><dd>' +
+              escapeHtml(incident.assignedInvestigator || 'Not yet assigned') + '</dd></div>' +
+              '<div class="detail-item"><dt>Investigators available</dt><dd>' + invUsers.length + '</dd></div>' +
+              '</dl>' +
+              (invUsers.length
+                ? '<form class="inline-form mb-4" id="assign-form">' +
+                    '<div><label class="label" for="assign-email">Assign an investigator</label>' +
+                    '<select class="select" id="assign-email">' + options + '</select></div>' +
+                    '<button class="btn" type="submit">' +
+                    (incident.status === 'UNDER_REVIEW' ? 'Assign and start investigation' : 'Change assignment') +
+                    '</button>' +
+                  '</form>' +
+                  '<div class="table-wrapper mb-4"><table>' +
+                  '<caption class="sr-only">Investigator accounts available for assignment</caption><thead><tr>' +
+                  '<th scope="col">Investigator</th><th scope="col">Email</th>' +
+                  '<th scope="col">Open assignments</th><th scope="col">Assignment action</th>' +
+                  '</tr></thead><tbody>' +
+                  invUsers
+                    .map(
+                      (u) =>
+                        '<tr><td>' + escapeHtml(u.fullName) +
+                        (u.email === current ? ' <span class="tag">Currently assigned</span>' : '') + '</td>' +
+                        '<td>' + escapeHtml(u.email) + '</td>' +
+                        '<td>' + assignedCount(u.email) + '</td>' +
+                        '<td><button class="btn btn-secondary" type="button" data-assign="' + escapeHtml(u.email) + '">' +
+                        (u.email === current ? 'Reassign to this investigator' : 'Assign to this investigator') +
+                        '</button></td></tr>'
+                    )
+                    .join('') +
+                  '</tbody></table></div>'
+                : '<p class="readonly-note mb-4">No active investigator accounts are available. ' +
+                  'Activate an account in User Management before assigning this incident.</p>')
+            );
+          } else {
+            parts.push(
+              '<h3 class="section-title mt-4">Investigator assignment</h3>' +
+              '<p class="readonly-note">An investigator is assigned while the incident is UNDER_REVIEW or ' +
+              'UNDER_INVESTIGATION. This incident is ' + escapeHtml(incident.status.replace(/_/g, ' ')) + ', so the ' +
+              'assignment is read-only. Assigned investigator: ' +
+              escapeHtml(incident.assignedInvestigator || 'none') + '.</p>'
+            );
+          }
+
+          // Investigation summary
+          parts.push(
+            '<h3 class="section-title">Investigation</h3>' +
+              (inv
+                ? '<dl class="detail-grid mb-2">' +
+                    '<div class="detail-item"><dt>Status</dt><dd>' + escapeHtml(inv.status.replace(/_/g, ' ')) + '</dd></div>' +
+                    '<div class="detail-item"><dt>Started</dt><dd>' + escapeHtml(inv.startedAt ? formatDate(inv.startedAt) : 'Not started') + '</dd></div>' +
+                  '</dl>' +
+                  '<div class="detail-item mb-2"><dt>Findings</dt><dd>' + escapeHtml(inv.findings || 'Not recorded') + '</dd></div>' +
+                  '<div class="detail-item"><dt>Actions taken</dt><dd>' + escapeHtml(inv.actionsTaken || 'Not recorded') + '</dd></div>'
+                : '<p class="readonly-note">No investigation has been started for this incident.</p>')
+          );
+
+          // Resolution summary
+          if (res) {
+            parts.push(
+              '<h3 class="section-title mt-4">Resolution</h3>' +
+                '<div class="detail-item mb-2"><dt>Resolution</dt><dd>' + escapeHtml(res.description || 'Not recorded') + '</dd></div>' +
+                '<p class="readonly-note">Resolved by ' + escapeHtml(res.resolvedBy || 'unknown') +
+                (res.resolvedAt ? ' on ' + escapeHtml(formatDate(res.resolvedAt)) : '') +
+                (res.closedAt ? ' &middot; closed on ' + escapeHtml(formatDate(res.closedAt)) : '') + '</p>'
+            );
+          }
+
+          parts.push('<p class="mt-2"><a href="incident-details.html?id=' + encodeURIComponent(incident.id) + '">View full incident details</a></p>');
+
+          panelBody.innerHTML = parts.join('');
+          panel.hidden = false;
+
+          // Wire up panel events
+          const triageForm = document.getElementById('triage-form');
+          if (triageForm) {
+            triageForm.addEventListener('submit', function (e) {
+              e.preventDefault();
+              const current2 = getIncidentById(id);
+              if (!current2) return showAlert(alertBox, 'error', 'That incident could not be found.');
+              if (statusIndex(current2.status) > statusIndex('UNDER_REVIEW')) {
+                return showAlert(alertBox, 'error', 'Triage cannot be changed at this stage of the workflow.');
+              }
+              updateIncident(id, {
+                type: document.getElementById('triage-type').value,
+                severity: document.getElementById('triage-severity').value,
+              });
+              appendTimeline(id, current2.status, 'Triage updated by ' + user.email);
+              showAlert(alertBox, 'success', 'Triage details saved for ' + id + '.');
+              renderTable();
+              openPanel(id);
+            });
+          }
+
+          const reviewBtn = panelBody.querySelector('[data-action="review"]');
+          if (reviewBtn) {
+            reviewBtn.addEventListener('click', function () {
+              const current2 = getIncidentById(id);
+              if (!current2 || current2.status !== 'SUBMITTED') {
+                return showAlert(alertBox, 'error', 'Only a SUBMITTED incident can move to UNDER_REVIEW.');
+              }
+              updateIncident(id, { status: 'UNDER_REVIEW' });
+              appendTimeline(id, 'UNDER_REVIEW', 'Review started by ' + user.email);
+              notifyUserByEmail(current2.reportedBy, id, 'Incident ' + id + ' is now under review.');
+              showAlert(alertBox, 'success', id + ' is now UNDER_REVIEW.');
+              renderTable();
+              openPanel(id);
+            });
+          }
+
+          const assignForm = document.getElementById('assign-form');
+          if (assignForm) {
+            assignForm.addEventListener('submit', function (e) {
+              e.preventDefault();
+              assignInvestigator(id, document.getElementById('assign-email').value);
+            });
+          }
+
+          panelBody.querySelectorAll('[data-assign]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              assignInvestigator(id, btn.getAttribute('data-assign'));
+            });
+          });
+
+          panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        // Shared assignment action used by the dropdown form and the
+        // "assign to this investigator" buttons in the availability table.
+        function assignInvestigator(id, email) {
+          const current2 = getIncidentById(id);
+          if (!current2) return showAlert(alertBox, 'error', 'That incident could not be found.');
+          if (!['UNDER_REVIEW', 'UNDER_INVESTIGATION'].includes(current2.status)) {
+            return showAlert(alertBox, 'error', 'An investigator can only be assigned during review or investigation.');
+          }
+          if (!email) return showAlert(alertBox, 'error', 'Select an investigator to assign.');
+          const target = findUserByEmail(email);
+          if (!target) return showAlert(alertBox, 'error', 'That investigator account could not be found.');
+          if (target.isActive === false) {
+            return showAlert(alertBox, 'error', 'That investigator account is deactivated and cannot be assigned work.');
+          }
+          if (target.role !== 'INVESTIGATOR') {
+            return showAlert(alertBox, 'error', 'Only investigator accounts can be assigned to incidents.');
+          }
+
+          updateIncident(id, { assignedInvestigator: email });
+          saveInvestigation(id, { investigatorId: target.id });
+
+          if (current2.status === 'UNDER_REVIEW') {
+            updateIncident(id, { status: 'UNDER_INVESTIGATION' });
+            appendTimeline(id, 'UNDER_INVESTIGATION', 'Assigned to ' + email + ' by ' + user.email);
+          } else {
+            appendTimeline(id, 'UNDER_INVESTIGATION', 'Reassigned to ' + email + ' by ' + user.email);
+          }
+
+          notify(target.id, id, 'You have been assigned to incident ' + id + '.');
+          showAlert(alertBox, 'success', 'Investigator ' + email + ' assigned to ' + id + '.');
+          renderTable();
+          openPanel(id);
+        }
+
+        search.addEventListener('input', renderTable);
+        statusFilter.addEventListener('change', renderTable);
+        severityFilter.addEventListener('change', renderTable);
+        typeFilter.addEventListener('change', renderTable);
+        document.getElementById('filter-form').addEventListener('reset', function () {
+          setTimeout(renderTable, 0);
+        });
+
+        renderTable();
+
+        const requestedId = new URLSearchParams(window.location.search).get('id');
+        if (requestedId) openPanel(requestedId);
+      }
+    </script>
+  </body>
+</html>

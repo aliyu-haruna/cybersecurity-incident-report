@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>My Incidents | Cybersecurity Incident Reporting System</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <header class="header" id="app-header"></header>
+    <p class="notice-bar">Academic Prototype &mdash; simulated authentication and browser localStorage. Not for production use.</p>
+    <div class="layout">
+      <nav class="sidebar" id="app-sidebar" aria-label="Main navigation"></nav>
+      <main class="main">
+        <h1 class="page-title">My Incidents</h1>
+        <p class="page-lead">All incidents you have reported, with search and filtering.</p>
+        <div id="page-alert" role="status" aria-live="polite"></div>
+
+        <form class="filters card" id="filter-form" role="search">
+          <div class="field">
+            <label class="label" for="search">Search</label>
+            <input class="input" type="search" id="search" placeholder="ID, title or description" />
+          </div>
+          <div class="field">
+            <label class="label" for="status-filter">Status</label>
+            <select class="select" id="status-filter">
+              <option value="">All statuses</option>
+              <option>SUBMITTED</option>
+              <option>UNDER_REVIEW</option>
+              <option>UNDER_INVESTIGATION</option>
+              <option>RESOLVED</option>
+              <option>CLOSED</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="label" for="severity-filter">Severity</label>
+            <select class="select" id="severity-filter">
+              <option value="">All severities</option>
+              <option>Low</option>
+              <option>Medium</option>
+              <option>High</option>
+              <option>Critical</option>
+            </select>
+          </div>
+          <button class="btn btn-secondary" type="reset">Clear</button>
+        </form>
+
+        <div id="incident-table" aria-live="polite"></div>
+      </main>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/seed.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+      seedIfMissing();
+      const user = requireAuth(['REPORTER']);
+      if (user) {
+        renderLayout('my');
+        const container = document.getElementById('incident-table');
+        const search = document.getElementById('search');
+        const statusFilter = document.getElementById('status-filter');
+        const severityFilter = document.getElementById('severity-filter');
+
+        function render() {
+          const term = search.value.trim().toLowerCase();
+          const rows = loadIncidents()
+            .filter((i) => i.reportedBy === user.email)
+            .filter(
+              (i) =>
+                !term ||
+                (i.id + ' ' + i.title + ' ' + i.type + ' ' + i.description + ' ' + (i.affectedSystem || ''))
+                  .toLowerCase()
+                  .includes(term)
+            )
+            .filter((i) => !statusFilter.value || i.status === statusFilter.value)
+            .filter((i) => !severityFilter.value || i.severity === severityFilter.value)
+            .sort((a, b) => (a.id < b.id ? 1 : -1));
+
+          if (!rows.length) {
+            container.innerHTML = '<p class="empty-state">No incidents match the current filters.</p>';
+            return;
+          }
+
+          container.innerHTML = `<div class="table-wrapper"><table>
+            <caption class="sr-only">Incidents you reported</caption>
+            <thead><tr>
+              <th scope="col">ID</th><th scope="col">Title</th><th scope="col">Type</th>
+              <th scope="col">Severity</th><th scope="col">Status</th><th scope="col">Date</th>
+              <th scope="col">Action</th>
+            </tr></thead>
+            <tbody>${rows
+              .map(
+                (i) => `<tr>
+                  <td>${escapeHtml(i.id)}</td>
+                  <td>${escapeHtml(i.title)}</td>
+                  <td>${badgeType(i.type)}</td>
+                  <td>${badgeSeverity(i.severity)}</td>
+                  <td>${badgeStatus(i.status)}</td>
+                  <td>${escapeHtml(formatDate(i.dateTime))}</td>
+                  <td><a href="incident-details.html?id=${encodeURIComponent(i.id)}">View</a></td>
+                </tr>`
+              )
+              .join('')}</tbody></table></div>`;
+        }
+
+        search.addEventListener('input', render);
+        statusFilter.addEventListener('change', render);
+        severityFilter.addEventListener('change', render);
+        document.getElementById('filter-form').addEventListener('reset', function () {
+          setTimeout(render, 0);
+        });
+        render();
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reporter Dashboard | Cybersecurity Incident Reporting System</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <header class="header" id="app-header"></header>
+    <p class="notice-bar">Academic Prototype &mdash; simulated authentication and browser localStorage. Not for production use.</p>
+    <div class="layout">
+      <nav class="sidebar" id="app-sidebar" aria-label="Main navigation"></nav>
+      <main class="main">
+        <h1 class="page-title">Reporter Dashboard</h1>
+        <p class="page-lead">Overview of the incidents you have reported.</p>
+        <div id="page-alert" role="status" aria-live="polite"></div>
+        <section id="stats" class="stats-grid mb-6" aria-label="Incident summary"></section>
+        <section class="card mb-6">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="section-title" style="margin:0">Recent Incidents</h2>
+            <a class="btn" href="report-incident.html">Report New Incident</a>
+          </div>
+          <div id="recent-table"></div>
+        </section>
+        <section class="card" id="notifications-card">
+          <h2 class="section-title">Notifications</h2>
+          <div id="notification-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/seed.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/stats.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/notifications.js"></script>
+    <script>
+      seedIfMissing();
+      const user = requireAuth(['REPORTER']);
+      if (user) {
+        renderLayout('dashboard');
+
+        function render() {
+          const mine = loadIncidents().filter((i) => i.reportedBy === user.email);
+          const s = computeStats(mine);
+          document.getElementById('stats').innerHTML = [
+            ['Total Incidents', s.total],
+            ['Submitted', s.submitted],
+            ['Under Investigation', s.underInvestigation],
+            ['Resolved', s.resolved],
+          ]
+            .map(
+              ([label, value]) =>
+                `<article class="stat-card"><p class="stat-value">${value}</p><p class="stat-label">${label}</p></article>`
+            )
+            .join('');
+
+          const recent = mine.slice(0, 5);
+          document.getElementById('recent-table').innerHTML = recent.length
+            ? `<div class="table-wrapper"><table><caption class="sr-only">Your most recent incidents</caption>
+              <thead><tr><th scope="col">ID</th><th scope="col">Title</th><th scope="col">Severity</th>
+              <th scope="col">Status</th><th scope="col">Date</th><th scope="col">Action</th></tr></thead>
+              <tbody>${recent
+                .map(
+                  (i) => `<tr>
+                    <td>${escapeHtml(i.id)}</td>
+                    <td>${escapeHtml(i.title)}</td>
+                    <td>${badgeSeverity(i.severity)}</td>
+                    <td>${badgeStatus(i.status)}</td>
+                    <td>${escapeHtml(formatDate(i.dateTime))}</td>
+                    <td><a href="incident-details.html?id=${encodeURIComponent(i.id)}">View</a></td>
+                  </tr>`
+                )
+                .join('')}</tbody></table></div>`
+            : '<p class="empty-state">You have not reported any incidents yet.</p>';
+
+          renderNotificationPanel('notification-list', user, render);
+        }
+
+        render();
+      }
+    </script>
+  </body>
+</html>

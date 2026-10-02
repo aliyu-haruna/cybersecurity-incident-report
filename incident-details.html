@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Incident Details | Cybersecurity Incident Reporting System</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <header class="header" id="app-header"></header>
+    <p class="notice-bar">Academic Prototype &mdash; simulated authentication and browser localStorage. Not for production use.</p>
+    <div class="layout">
+      <nav class="sidebar" id="app-sidebar" aria-label="Main navigation"></nav>
+      <main class="main" id="detail-root">
+        <h1 class="page-title" id="page-title">Incident Details</h1>
+        <p class="page-lead" id="page-lead">Loading incident...</p>
+        <div id="page-alert" role="status" aria-live="polite"></div>
+      </main>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/seed.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+      seedIfMissing();
+      const user = requireAuth(['REPORTER', 'INVESTIGATOR', 'ADMINISTRATOR', 'MANAGEMENT']);
+      if (user) {
+        renderLayout();
+
+        const root = document.getElementById('detail-root');
+        const id = new URLSearchParams(window.location.search).get('id');
+        const incident = id ? getIncidentById(id) : null;
+
+        // Reports which incidents this role is allowed to open.
+        function visibleIncidents() {
+          const all = loadIncidents();
+          if (user.role === 'ADMINISTRATOR' || user.role === 'MANAGEMENT') return all;
+          if (user.role === 'REPORTER') return all.filter((i) => i.reportedBy === user.email);
+          return all.filter((i) => i.assignedInvestigator === user.email);
+        }
+
+        // Opened from the sidebar with no id: list what this role can view.
+        if (!id) {
+          const rows = visibleIncidents().sort((a, b) => (a.id < b.id ? 1 : -1));
+          document.getElementById('page-lead').textContent = 'Select an incident to view its full record.';
+          root.insertAdjacentHTML(
+            'beforeend',
+            '<section class="card"><h2 class="section-title">Incidents you can view</h2>' +
+              (rows.length
+                ? '<div class="table-wrapper"><table><caption class="sr-only">Incidents available to you</caption>' +
+                  '<thead><tr><th scope="col">ID</th><th scope="col">Title</th><th scope="col">Type</th>' +
+                  '<th scope="col">Severity</th><th scope="col">Status</th><th scope="col">Reported</th>' +
+                  '<th scope="col">Action</th></tr></thead><tbody>' +
+                  rows
+                    .map(
+                      (i) =>
+                        '<tr><td>' + escapeHtml(i.id) + '</td><td>' + escapeHtml(i.title) + '</td><td>' + badgeType(i.type) +
+                        '</td><td>' + badgeSeverity(i.severity) + '</td><td>' + badgeStatus(i.status) + '</td><td>' +
+                        escapeHtml(formatDate(i.dateTime)) + '</td><td><a href="incident-details.html?id=' +
+                        encodeURIComponent(i.id) + '">View</a></td></tr>'
+                    )
+                    .join('') +
+                  '</tbody></table></div>'
+                : '<p class="empty-state">There are no incidents available to your account.</p>') +
+              '</section>'
+          );
+        } else if (!incident) {
+          document.getElementById('page-title').textContent = 'Incident not found';
+          document.getElementById('page-lead').textContent =
+            'The incident you requested does not exist in this prototype.';
+          root.insertAdjacentHTML(
+            'beforeend',
+            '<p><a class="btn btn-secondary" href="' + (ROLE_HOME[user.role] || 'index.html') + '">Back to dashboard</a></p>'
+          );
+        } else {
+          // Role scoping: reporters only see their own incidents, investigators only assigned ones.
+          const allowed =
+            user.role === 'ADMINISTRATOR' ||
+            user.role === 'MANAGEMENT' ||
+            (user.role === 'REPORTER' && incident.reportedBy === user.email) ||
+            (user.role === 'INVESTIGATOR' && incident.assignedInvestigator === user.email);
+
+          if (!allowed) {
+            document.getElementById('page-title').textContent = 'Access denied';
+            document.getElementById('page-lead').textContent =
+              'You do not have permission to view this incident.';
+            root.insertAdjacentHTML(
+              'beforeend',
+              '<p><a class="btn btn-secondary" href="' + ROLE_HOME[user.role] + '">Go to my dashboard</a></p>'
+            );
+          } else {
+            const inv = getInvestigation(incident.id);
+            const res = getResolution(incident.id);
+            const activeIndex = statusIndex(incident.status);
+
+            document.getElementById('page-title').textContent = incident.title;
+            document.getElementById('page-lead').innerHTML =
+              'Incident ' + escapeHtml(incident.id) + ' &mdash; reported ' + escapeHtml(formatDate(incident.createdAt));
+
+            const timelineHtml = STATUS_FLOW.map((s, i) => {
+              const cls = 'timeline-step' + (i === activeIndex ? ' active' : '');
+              const label = s.replace(/_/g, ' ');
+              return (i > 0 ? '<span class="timeline-arrow" aria-hidden="true">&rarr;</span>' : '') +
+                '<span class="' + cls + '"' + (i === activeIndex ? ' aria-current="step"' : '') + '>' + escapeHtml(label) + '</span>';
+            }).join('');
+
+            const timelineList = (incident.timeline || [])
+              .slice()
+              .reverse()
+              .map(
+                (t) => `<li>
+                  <strong>${escapeHtml(t.status.replace(/_/g, ' '))}</strong>
+                  <span class="tl-time">${escapeHtml(formatDate(t.at))}</span>
+                  ${t.note ? '<p class="mb-1">' + escapeHtml(t.note) + '</p>' : ''}
+                </li>`
+              )
+              .join('');
+
+            const section = (title, body) =>
+              body ? '<section class="card mb-4"><h2 class="section-title">' + title + '</h2>' + body + '</section>' : '';
+
+            const dlItem = (label, valueHtml) =>
+              '<div class="detail-item"><dt>' + label + '</dt><dd>' + valueHtml + '</dd></div>';
+
+            root.insertAdjacentHTML(
+              'beforeend',
+              '<section class="card mb-4">' +
+                '<h2 class="section-title">Status</h2>' +
+                '<div class="timeline">' + timelineHtml + '</div>' +
+                '<p class="readonly-note mt-2">Current status: ' + badgeStatus(incident.status) + '</p>' +
+                '</section>' +
+                '<section class="card mb-4">' +
+                  '<h2 class="section-title">Incident Information</h2>' +
+                  '<dl class="detail-grid">' +
+                    dlItem('Incident ID', escapeHtml(incident.id)) +
+                    dlItem('Type', badgeType(incident.type)) +
+                    dlItem('Severity', badgeSeverity(incident.severity)) +
+                    dlItem('Status', badgeStatus(incident.status)) +
+                    dlItem('Reported date', escapeHtml(formatDate(incident.dateTime))) +
+                    dlItem('Reporter', escapeHtml(incident.reportedBy)) +
+                    dlItem(
+                      'Assigned investigator',
+                      incident.assignedInvestigator ? escapeHtml(incident.assignedInvestigator) : 'Not yet assigned'
+                    ) +
+                    dlItem('Affected system / location', escapeHtml(incident.affectedSystem || 'Not specified')) +
+                  '</dl>' +
+                  '<div class="detail-item mt-2"><dt>Description</dt><dd>' + escapeHtml(incident.description) + '</dd></div>' +
+                  (incident.evidence
+                    ? '<div class="detail-item mt-2"><dt>Evidence / reference</dt><dd>' + escapeHtml(incident.evidence) + '</dd></div>'
+                    : '') +
+                '</section>' +
+                section(
+                  'Investigation',
+                  inv
+                    ? '<dl class="detail-grid">' +
+                        dlItem('Investigation status', escapeHtml(inv.status.replace(/_/g, ' '))) +
+                        dlItem('Investigator', inv.investigatorId ? escapeHtml((findUserById(inv.investigatorId) || {}).email || inv.investigatorId) : 'Not recorded') +
+                        dlItem('Started', inv.startedAt ? escapeHtml(formatDate(inv.startedAt)) : 'Not started') +
+                        dlItem('Completed', inv.completedAt ? escapeHtml(formatDate(inv.completedAt)) : 'In progress') +
+                        '</dl>' +
+                        '<div class="detail-item mt-2"><dt>Findings</dt><dd>' + escapeHtml(inv.findings || 'Not recorded yet') + '</dd></div>' +
+                        '<div class="detail-item mt-2"><dt>Actions taken</dt><dd>' + escapeHtml(inv.actionsTaken || 'Not recorded yet') + '</dd></div>' +
+                        (inv.evidence
+                          ? '<div class="detail-item mt-2"><dt>Investigation evidence</dt><dd>' + escapeHtml(inv.evidence) + '</dd></div>'
+                          : '')
+                    : ''
+                ) +
+                section(
+                  'Resolution',
+                  res
+                    ? '<dl class="detail-grid">' +
+                        dlItem('Resolved by', res.resolvedBy ? escapeHtml(res.resolvedBy) : 'Not recorded') +
+                        dlItem('Resolved at', res.resolvedAt ? escapeHtml(formatDate(res.resolvedAt)) : 'Not resolved') +
+                        dlItem('Closed at', res.closedAt ? escapeHtml(formatDate(res.closedAt)) : 'Open') +
+                        '</dl>' +
+                        '<div class="detail-item mt-2"><dt>Resolution description</dt><dd>' + escapeHtml(res.description || 'Not recorded') + '</dd></div>'
+                    : ''
+                ) +
+                '<section class="card mb-4"><h2 class="section-title">Timeline</h2>' +
+                (timelineList ? '<ul class="timeline-list">' + timelineList + '</ul>' : '<p class="empty-state">No timeline entries.</p>') +
+                '</section>' +
+                '<a class="btn btn-secondary" href="' + (ROLE_HOME[user.role] || 'index.html') + '">Back to dashboard</a>'
+            );
+          }
+        }
+      }
+    </script>
+  </body>
+</html>

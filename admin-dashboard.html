@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Administrator Dashboard | Cybersecurity Incident Reporting System</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <header class="header" id="app-header"></header>
+    <p class="notice-bar">Academic Prototype &mdash; simulated authentication and browser localStorage. Not for production use.</p>
+    <div class="layout">
+      <nav class="sidebar" id="app-sidebar" aria-label="Main navigation"></nav>
+      <main class="main">
+        <h1 class="page-title">Administrator Dashboard</h1>
+        <p class="page-lead">System-wide incident overview and queue of items requiring action.</p>
+        <div id="page-alert" role="status" aria-live="polite"></div>
+        <section id="stats" class="stats-grid mb-6" aria-label="Incident summary"></section>
+        <section class="card mb-6">
+          <h2 class="section-title">Requiring your action</h2>
+          <p class="source-note">
+            Incidents that are waiting for review, waiting for an investigator assignment, or awaiting a
+            resolution decision.
+          </p>
+          <div id="queue-table"></div>
+        </section>
+        <section class="card">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="section-title" style="margin:0">Recent Incidents</h2>
+            <a class="btn" href="incident-management.html">Open Incident Management</a>
+          </div>
+          <div id="recent-table"></div>
+        </section>
+        <section class="card mt-2" id="notifications-card">
+          <h2 class="section-title">Notifications</h2>
+          <div id="notification-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/seed.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/stats.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/notifications.js"></script>
+    <script>
+      seedIfMissing();
+      const user = requireAuth(['ADMINISTRATOR']);
+      if (user) {
+        renderLayout('dashboard');
+
+        function tableRow(i, action) {
+          return (
+            '<tr>' +
+            '<td>' + escapeHtml(i.id) + '</td>' +
+            '<td>' + escapeHtml(i.title) + '</td>' +
+            '<td>' + badgeType(i.type) + '</td>' +
+            '<td>' + badgeSeverity(i.severity) + '</td>' +
+            '<td>' + badgeStatus(i.status) + '</td>' +
+            '<td>' + escapeHtml(i.reportedBy) + '</td>' +
+            '<td>' + escapeHtml(i.assignedInvestigator || 'Unassigned') + '</td>' +
+            '<td>' + action + '</td>' +
+            '</tr>'
+          );
+        }
+
+        const HEAD =
+          '<thead><tr><th scope="col">ID</th><th scope="col">Title</th><th scope="col">Type</th>' +
+          '<th scope="col">Severity</th><th scope="col">Status</th><th scope="col">Reporter</th>' +
+          '<th scope="col">Investigator</th><th scope="col">Action</th></tr></thead>';
+
+        function render() {
+          const all = loadIncidents();
+          const s = computeStats(all);
+
+          document.getElementById('stats').innerHTML = [
+            ['Total Incidents', s.total],
+            ['Open Incidents', s.open],
+            ['Critical Incidents', s.critical],
+            ['Resolved Incidents', s.resolved],
+          ]
+            .map(
+              ([label, value]) =>
+                `<article class="stat-card"><p class="stat-value">${value}</p><p class="stat-label">${label}</p></article>`
+            )
+            .join('');
+
+          const queue = all.filter((i) => {
+            if (i.status === 'SUBMITTED' || i.status === 'UNDER_REVIEW') return true;
+            if (i.status === 'UNDER_INVESTIGATION') {
+              const inv = getInvestigation(i.id);
+              return inv && inv.status === 'COMPLETED';
+            }
+            return false;
+          });
+
+          document.getElementById('queue-table').innerHTML = queue.length
+            ? '<div class="table-wrapper"><table><caption class="sr-only">Incidents waiting for administrator action</caption>' +
+              HEAD +
+              '<tbody>' +
+              queue
+                .sort((a, b) => (a.id < b.id ? 1 : -1))
+                .map((i) => {
+                  const inv = i.status === 'UNDER_INVESTIGATION' ? getInvestigation(i.id) : null;
+                  const readyForResolution = inv && inv.status === 'COMPLETED';
+                  const action = readyForResolution
+                    ? '<a href="resolution.html?id=' + encodeURIComponent(i.id) + '">Record resolution</a>'
+                    : '<a href="incident-management.html?id=' + encodeURIComponent(i.id) + '">Review</a>';
+                  return tableRow(i, action);
+                })
+                .join('') +
+              '</tbody></table></div>'
+            : '<p class="empty-state">No incidents are waiting for your action.</p>';
+
+          const recent = all.slice(0, 8);
+          document.getElementById('recent-table').innerHTML = recent.length
+            ? `<div class="table-wrapper"><table>
+              <caption class="sr-only">Most recent incidents across the system</caption>` +
+              HEAD +
+              `<tbody>${recent
+                .map((i) =>
+                  tableRow(
+                    i,
+                    '<a href="incident-management.html?id=' +
+                      encodeURIComponent(i.id) +
+                      '">Manage</a> &middot; <a href="incident-details.html?id=' +
+                      encodeURIComponent(i.id) +
+                      '">Details</a>'
+                  )
+                )
+                .join('')}</tbody></table></div>`
+            : '<p class="empty-state">No incidents have been reported yet.</p>';
+
+          renderNotificationPanel('notification-list', user, render);
+        }
+
+        render();
+      }
+    </script>
+  </body>
+</html>

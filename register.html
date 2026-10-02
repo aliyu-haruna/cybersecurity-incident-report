@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Register | Cybersecurity Incident Reporting System</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/auth.css" />
+  </head>
+  <body>
+    <main class="auth-wrap">
+      <section class="auth-card" aria-labelledby="register-heading">
+        <h1 id="register-heading">Create a Reporter account</h1>
+        <p class="auth-sub">
+          Self-registration creates a Reporter account. Administrator, Investigator and Management
+          access is assigned by an administrator from the User Management screen.
+        </p>
+
+        <div id="register-alert" role="alert" aria-live="assertive"></div>
+
+        <form id="register-form" novalidate>
+          <div class="form-group">
+            <label class="label" for="fullName">Full Name</label>
+            <input
+              class="input"
+              type="text"
+              id="fullName"
+              name="fullName"
+              autocomplete="name"
+              required
+              maxlength="80"
+              aria-describedby="fullName-error"
+            />
+            <p class="field-error" id="fullName-error" aria-live="polite"></p>
+          </div>
+
+          <div class="form-group">
+            <label class="label" for="email">Email address</label>
+            <input
+              class="input"
+              type="email"
+              id="email"
+              name="email"
+              autocomplete="username"
+              required
+              aria-describedby="email-error"
+            />
+            <p class="field-error" id="email-error" aria-live="polite"></p>
+          </div>
+
+          <div class="form-group">
+            <label class="label" for="password">Password</label>
+            <input
+              class="input"
+              type="password"
+              id="password"
+              name="password"
+              autocomplete="new-password"
+              required
+              aria-describedby="password-error"
+            />
+            <p class="field-error" id="password-error" aria-live="polite"></p>
+          </div>
+
+          <div class="form-group">
+            <label class="label" for="confirmPassword">Confirm Password</label>
+            <input
+              class="input"
+              type="password"
+              id="confirmPassword"
+              name="confirmPassword"
+              autocomplete="new-password"
+              required
+              aria-describedby="confirmPassword-error"
+            />
+            <p class="field-error" id="confirmPassword-error" aria-live="polite"></p>
+          </div>
+
+          <button class="btn btn-block" type="submit">Register</button>
+        </form>
+
+        <a class="btn btn-secondary btn-block" href="index.html">Back to login</a>
+
+        <p class="disclaimer auth-disclaimer">
+          Academic Prototype &mdash; Accounts are created in this browser only, and passwords are held
+          in plain text without hashing. Sign in with your new account on the login page.
+        </p>
+      </section>
+    </main>
+
+    <script src="js/utils.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/seed.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+      seedIfMissing();
+
+      const form = document.getElementById('register-form');
+      const alertBox = document.getElementById('register-alert');
+
+      function setFieldError(id, message) {
+        const el = document.getElementById(id + '-error');
+        if (el) el.textContent = message || '';
+        const input = document.getElementById(id);
+        if (input) input.setAttribute('aria-invalid', message ? 'true' : 'false');
+      }
+
+      function validate() {
+        let valid = true;
+        const fullName = document.getElementById('fullName').value.trim();
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value;
+        const confirmPassword = document.getElementById('confirmPassword').value;
+
+        setFieldError('fullName', '');
+        setFieldError('email', '');
+        setFieldError('password', '');
+        setFieldError('confirmPassword', '');
+
+        if (!fullName) {
+          setFieldError('fullName', 'Full name is required.');
+          valid = false;
+        } else if (fullName.length < 2) {
+          setFieldError('fullName', 'Full name must be at least 2 characters long.');
+          valid = false;
+        } else if (fullName.length > 80) {
+          setFieldError('fullName', 'Full name must be 80 characters or fewer.');
+          valid = false;
+        }
+
+        if (!email) {
+          setFieldError('email', 'Email address is required.');
+          valid = false;
+        } else if (!isValidEmail(email)) {
+          setFieldError('email', 'Enter a valid email address, for example name@example.com.');
+          valid = false;
+        } else if (findUserByEmail(email)) {
+          setFieldError('email', 'An account already exists with that email address.');
+          valid = false;
+        }
+
+        if (!password) {
+          setFieldError('password', 'Password is required.');
+          valid = false;
+        } else if (password.length < 8) {
+          setFieldError('password', 'Password must be at least 8 characters long.');
+          valid = false;
+        }
+
+        if (!confirmPassword) {
+          setFieldError('confirmPassword', 'Please confirm your password.');
+          valid = false;
+        } else if (confirmPassword !== password) {
+          setFieldError('confirmPassword', 'The two passwords do not match.');
+          valid = false;
+        }
+
+        return valid;
+      }
+
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        alertBox.innerHTML = '';
+        if (!validate()) return;
+
+        const fullName = document.getElementById('fullName').value.trim();
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value;
+
+        // The role is fixed inside registerUser() and cannot be supplied here.
+        const result = registerUser(fullName, email, password);
+
+        if (result.ok) {
+          showAlert(
+            alertBox,
+            'success',
+            'Account created. You can now sign in as ' + result.user.email + ' from the login page.'
+          );
+          setTimeout(function () {
+            window.location.href = 'index.html';
+          }, 1200);
+        } else {
+          showAlert(alertBox, 'error', result.message);
+        }
+      });
+    </script>
+  </body>
+</html>

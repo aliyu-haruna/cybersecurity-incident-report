@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Investigator Dashboard | Cybersecurity Incident Reporting System</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <header class="header" id="app-header"></header>
+    <p class="notice-bar">Academic Prototype &mdash; simulated authentication and browser localStorage. Not for production use.</p>
+    <div class="layout">
+      <nav class="sidebar" id="app-sidebar" aria-label="Main navigation"></nav>
+      <main class="main">
+        <h1 class="page-title">Investigator Dashboard</h1>
+        <p class="page-lead">Incidents currently assigned to you.</p>
+        <div id="page-alert" role="status" aria-live="polite"></div>
+        <section id="stats" class="stats-grid mb-6" aria-label="Assignment summary"></section>
+        <section class="card">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="section-title" style="margin:0">Assigned Incidents</h2>
+            <a class="btn btn-secondary" href="assigned-incidents.html">Open Assigned Incidents</a>
+          </div>
+          <div id="assigned-table"></div>
+        </section>
+        <section class="card mt-2" id="notifications-card">
+          <h2 class="section-title">Notifications</h2>
+          <div id="notification-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/seed.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/stats.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/notifications.js"></script>
+    <script>
+      seedIfMissing();
+      const user = requireAuth(['INVESTIGATOR']);
+      if (user) {
+        renderLayout('dashboard');
+
+        function render() {
+          const mine = loadIncidents().filter((i) => i.assignedInvestigator === user.email);
+          const active = mine.filter((i) => i.status === 'UNDER_INVESTIGATION');
+          const s = computeStats(mine);
+
+          document.getElementById('stats').innerHTML = [
+            ['Assigned to me', mine.length],
+            ['Active investigations', active.length],
+            ['High / Critical', mine.filter((i) => i.severity === 'High' || i.severity === 'Critical').length],
+            ['Completed', s.resolved + s.closed],
+          ]
+            .map(
+              ([label, value]) =>
+                '<article class="stat-card"><p class="stat-value">' + value + '</p><p class="stat-label">' + label + '</p></article>'
+            )
+            .join('');
+
+          renderNotificationPanel('notification-list', user, render);
+
+          const host = document.getElementById('assigned-table');
+          host.innerHTML = mine.length
+            ? '<div class="table-wrapper"><table><caption class="sr-only">Incidents assigned to you</caption><thead><tr>' +
+              '<th scope="col">ID</th><th scope="col">Title</th><th scope="col">Severity</th>' +
+              '<th scope="col">Incident status</th><th scope="col">Investigation</th><th scope="col">Date</th><th scope="col">Action</th>' +
+              '</tr></thead><tbody>' +
+              mine
+                .sort((a, b) => (a.id < b.id ? 1 : -1))
+                .map((i) => {
+                  const inv = getInvestigation(i.id);
+                  return (
+                    '<tr><td>' + escapeHtml(i.id) + '</td><td>' + escapeHtml(i.title) + '</td><td>' + badgeSeverity(i.severity) +
+                    '</td><td>' + badgeStatus(i.status) + '</td><td>' + escapeHtml(inv ? inv.status.replace(/_/g, ' ') : 'Not started') +
+                    '</td><td>' + escapeHtml(formatDate(i.dateTime)) + '</td><td>' +
+                    (i.status === 'UNDER_INVESTIGATION'
+                      ? '<a href="investigation.html?id=' + encodeURIComponent(i.id) + '">Record investigation</a>'
+                      : '<span class="readonly-note">No action available</span>') +
+                    ' &middot; <a href="incident-details.html?id=' + encodeURIComponent(i.id) + '">Details</a>' +
+                    '</td></tr>'
+                  );
+                })
+                .join('') +
+              '</tbody></table></div>'
+            : '<p class="empty-state">No incidents are currently assigned to you.</p>';
+        }
+
+        render();
+      }
+    </script>
+  </body>
+</html>

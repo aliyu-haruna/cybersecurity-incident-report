@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Assigned Incidents | Cybersecurity Incident Reporting System</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <header class="header" id="app-header"></header>
+    <p class="notice-bar">Academic Prototype &mdash; simulated authentication and browser localStorage. Not for production use.</p>
+    <div class="layout">
+      <nav class="sidebar" id="app-sidebar" aria-label="Main navigation"></nav>
+      <main class="main">
+        <h1 class="page-title">Assigned Incidents</h1>
+        <p class="page-lead">
+          Incidents an administrator has assigned to you. Open an incident to record findings and actions
+          taken.
+        </p>
+        <div id="page-alert" role="status" aria-live="polite"></div>
+
+        <form class="filters card" id="filter-form" role="search">
+          <div class="field">
+            <label class="label" for="search">Search</label>
+            <input class="input" type="search" id="search" placeholder="ID, title or affected system" />
+          </div>
+          <div class="field">
+            <label class="label" for="status-filter">Incident status</label>
+            <select class="select" id="status-filter">
+              <option value="">All statuses</option>
+              <option>SUBMITTED</option>
+              <option>UNDER_REVIEW</option>
+              <option>UNDER_INVESTIGATION</option>
+              <option>RESOLVED</option>
+              <option>CLOSED</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="label" for="inv-status-filter">Investigation status</label>
+            <select class="select" id="inv-status-filter">
+              <option value="">All investigation states</option>
+              <option value="NONE">Not started</option>
+              <option>NOT_STARTED</option>
+              <option>IN_PROGRESS</option>
+              <option>ON_HOLD</option>
+              <option>COMPLETED</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="label" for="severity-filter">Severity</label>
+            <select class="select" id="severity-filter">
+              <option value="">All severities</option>
+              <option>Low</option>
+              <option>Medium</option>
+              <option>High</option>
+              <option>Critical</option>
+            </select>
+          </div>
+          <button class="btn btn-secondary" type="reset">Clear</button>
+        </form>
+
+        <div id="incident-table" aria-live="polite"></div>
+
+        <p class="source-note mt-2">
+          Investigations can only be edited while an incident is UNDER_INVESTIGATION. An administrator
+          records the resolution and closes the incident once your investigation is marked complete.
+        </p>
+      </main>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/seed.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+      seedIfMissing();
+      const user = requireAuth(['INVESTIGATOR']);
+      if (user) {
+        renderLayout('assigned');
+        const container = document.getElementById('incident-table');
+        const search = document.getElementById('search');
+        const statusFilter = document.getElementById('status-filter');
+        const invStatusFilter = document.getElementById('inv-status-filter');
+        const severityFilter = document.getElementById('severity-filter');
+
+        function render() {
+          const term = search.value.trim().toLowerCase();
+          const rows = loadIncidents()
+            .filter((i) => i.assignedInvestigator === user.email)
+            .filter(
+              (i) =>
+                !term ||
+                (i.id + ' ' + i.title + ' ' + i.type + ' ' + i.description + ' ' + (i.affectedSystem || ''))
+                  .toLowerCase()
+                  .includes(term)
+            )
+            .filter((i) => !statusFilter.value || i.status === statusFilter.value)
+            .filter((i) => !severityFilter.value || i.severity === severityFilter.value)
+            .filter((i) => {
+              const wanted = invStatusFilter.value;
+              if (!wanted) return true;
+              const inv = getInvestigation(i.id);
+              if (wanted === 'NONE') return !inv || inv.status === 'NOT_STARTED';
+              return inv && inv.status === wanted;
+            })
+            .sort((a, b) => (a.id < b.id ? 1 : -1));
+
+          if (!rows.length) {
+            container.innerHTML =
+              '<div class="card"><p class="empty-state">No assigned incidents match the current filters.</p></div>';
+            return;
+          }
+
+          container.innerHTML =
+            '<div class="card"><div class="table-wrapper"><table>' +
+            '<caption class="sr-only">Incidents assigned to you</caption><thead><tr>' +
+            '<th scope="col">ID</th><th scope="col">Title</th><th scope="col">Type</th>' +
+            '<th scope="col">Severity</th><th scope="col">Incident status</th>' +
+            '<th scope="col">Investigation</th><th scope="col">Reported</th><th scope="col">Action</th>' +
+            '</tr></thead><tbody>' +
+            rows
+              .map((i) => {
+                const inv = getInvestigation(i.id);
+                const invLabel = inv ? inv.status.replace(/_/g, ' ') : 'Not started';
+                const canInvestigate = i.status === 'UNDER_INVESTIGATION';
+                return (
+                  '<tr>' +
+                  '<td>' + escapeHtml(i.id) + '</td>' +
+                  '<td>' + escapeHtml(i.title) + '</td>' +
+                  '<td>' + badgeType(i.type) + '</td>' +
+                  '<td>' + badgeSeverity(i.severity) + '</td>' +
+                  '<td>' + badgeStatus(i.status) + '</td>' +
+                  '<td>' + escapeHtml(invLabel) + '</td>' +
+                  '<td>' + escapeHtml(formatDate(i.dateTime)) + '</td>' +
+                  '<td>' +
+                  (canInvestigate
+                    ? '<a href="investigation.html?id=' + encodeURIComponent(i.id) + '">Record investigation</a>'
+                    : '<span class="readonly-note">No action available</span>') +
+                  ' &middot; ' +
+                  '<a href="incident-details.html?id=' + encodeURIComponent(i.id) + '">Details</a>' +
+                  '</td></tr>'
+                );
+              })
+              .join('') +
+            '</tbody></table></div></div>';
+        }
+
+        search.addEventListener('input', render);
+        statusFilter.addEventListener('change', render);
+        invStatusFilter.addEventListener('change', render);
+        severityFilter.addEventListener('change', render);
+        document.getElementById('filter-form').addEventListener('reset', function () {
+          setTimeout(render, 0);
+        });
+        render();
+      }
+    </script>
+  </body>
+</html>

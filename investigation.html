@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Investigation | Cybersecurity Incident Reporting System</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <header class="header" id="app-header"></header>
+    <p class="notice-bar">Academic Prototype &mdash; simulated authentication and browser localStorage. Not for production use.</p>
+    <div class="layout">
+      <nav class="sidebar" id="app-sidebar" aria-label="Main navigation"></nav>
+      <main class="main">
+        <h1 class="page-title">Investigation</h1>
+        <p class="page-lead">
+          Record the investigation status, findings and actions taken for incidents assigned to you.
+        </p>
+        <div id="page-alert" role="status" aria-live="polite"></div>
+        <div id="picker-root"></div>
+        <div id="investigation-root" hidden></div>
+      </main>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/seed.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+      seedIfMissing();
+      const user = requireAuth(['INVESTIGATOR']);
+      if (user) {
+        renderLayout();
+        const alertBox = document.getElementById('page-alert');
+        const root = document.getElementById('investigation-root');
+        const picker = document.getElementById('picker-root');
+        const requested = new URLSearchParams(window.location.search).get('id');
+
+        function renderPicker() {
+          const mine = loadIncidents().filter((i) => i.assignedInvestigator === user.email);
+          if (!mine.length) {
+            picker.innerHTML = '<p class="empty-state">No incidents are currently assigned to you.</p>';
+            return;
+          }
+          picker.innerHTML =
+            '<div class="card mb-4"><div class="flex items-center justify-between mb-4">' +
+            '<h2 class="section-title" style="margin:0">My assigned incidents</h2>' +
+            '<a class="btn btn-secondary" href="assigned-incidents.html">Open Assigned Incidents</a></div>' +
+            '<div class="table-wrapper"><table>' +
+            '<caption class="sr-only">Incidents assigned to you</caption><thead><tr>' +
+            '<th scope="col">ID</th><th scope="col">Title</th><th scope="col">Severity</th>' +
+            '<th scope="col">Status</th><th scope="col">Date</th><th scope="col">Action</th></tr></thead><tbody>' +
+            mine
+              .sort((a, b) => (a.id < b.id ? 1 : -1))
+              .map(
+                (i) =>
+                  '<tr><td>' + escapeHtml(i.id) + '</td><td>' + escapeHtml(i.title) + '</td><td>' + badgeSeverity(i.severity) +
+                  '</td><td>' + badgeStatus(i.status) + '</td><td>' + escapeHtml(formatDate(i.dateTime)) + '</td><td>' +
+                  '<a href="investigation.html?id=' + encodeURIComponent(i.id) + '">Open</a></td></tr>'
+              )
+              .join('') +
+            '</tbody></table></div></div>';
+        }
+
+        function openInvestigation(id) {
+          const incident = getIncidentById(id);
+          if (!incident) {
+            showAlert(alertBox, 'error', 'That incident could not be found.');
+            return;
+          }
+          if (incident.assignedInvestigator !== user.email) {
+            root.innerHTML = '';
+            showAlert(alertBox, 'error', 'You are not assigned to incident ' + escapeHtml(id) + '.');
+            return;
+          }
+          if (incident.status !== 'UNDER_INVESTIGATION') {
+            root.innerHTML =
+              '<section class="card"><h2 class="section-title">' + escapeHtml(incident.id) + '</h2>' +
+              '<p class="readonly-note">This incident is ' + escapeHtml(incident.status.replace(/_/g, ' ')) +
+              ' and is not in the investigation stage. ' +
+              '<a href="incident-details.html?id=' + encodeURIComponent(incident.id) + '">View details</a></p></section>';
+            root.hidden = false;
+            return;
+          }
+
+          const inv = getInvestigation(incident.id) || {};
+          root.innerHTML =
+            '<section class="card mb-4"><h2 class="section-title">' + escapeHtml(incident.id) + ' &mdash; ' + escapeHtml(incident.title) + '</h2>' +
+            '<dl class="detail-grid">' +
+            '<div class="detail-item"><dt>Severity</dt><dd>' + badgeSeverity(incident.severity) + '</dd></div>' +
+            '<div class="detail-item"><dt>Type</dt><dd>' + badgeType(incident.type) + '</dd></div>' +
+            '<div class="detail-item"><dt>Reporter</dt><dd>' + escapeHtml(incident.reportedBy) + '</dd></div>' +
+            '<div class="detail-item"><dt>Occurred</dt><dd>' + escapeHtml(formatDate(incident.dateTime)) + '</dd></div>' +
+            '</dl>' +
+            '<div class="detail-item mt-2"><dt>Description</dt><dd>' + escapeHtml(incident.description) + '</dd></div></section>' +
+
+            '<form class="card" id="investigation-form" novalidate>' +
+            '<h2 class="section-title">Investigation record</h2>' +
+            '<div class="form-group"><label class="label" for="inv-status">Investigation status</label>' +
+            '<select class="select" id="inv-status">' +
+            ['NOT_STARTED', 'IN_PROGRESS', 'ON_HOLD', 'COMPLETED']
+              .map(
+                (s) =>
+                  '<option value="' + s + '"' + (s === (inv.status || 'NOT_STARTED') ? ' selected' : '') + '>' +
+                  s.replace(/_/g, ' ') + '</option>'
+              )
+              .join('') +
+            '</select></div>' +
+            '<div class="form-group"><label class="label" for="findings">Findings</label>' +
+            '<textarea class="textarea" id="findings" rows="4" maxlength="4000">' + escapeHtml(inv.findings || '') + '</textarea>' +
+            '<p class="field-error" id="findings-error"></p></div>' +
+            '<div class="form-group"><label class="label" for="actions">Actions taken</label>' +
+            '<textarea class="textarea" id="actions" rows="4" maxlength="4000">' + escapeHtml(inv.actionsTaken || '') + '</textarea>' +
+            '<p class="field-error" id="actions-error"></p></div>' +
+            '<div class="form-group"><label class="label" for="inv-evidence">Evidence / reference</label>' +
+            '<textarea class="textarea" id="inv-evidence" rows="3" maxlength="2000">' + escapeHtml(inv.evidence || '') + '</textarea></div>' +
+            '<div class="action-row">' +
+            '<button class="btn btn-secondary" type="submit">Save Investigation</button>' +
+            '<button class="btn" type="button" id="complete-btn">Complete Investigation</button>' +
+            '<a class="btn btn-secondary" href="assigned-incidents.html">Assigned Incidents</a>' +
+            '<a class="btn btn-secondary" href="investigator-dashboard.html">Back</a>' +
+            '</div></form>';
+
+          root.hidden = false;
+
+          function collect() {
+            return {
+              findings: document.getElementById('findings').value.trim(),
+              actionsTaken: document.getElementById('actions').value.trim(),
+              evidence: document.getElementById('inv-evidence').value.trim(),
+            };
+          }
+
+          function validate() {
+            let ok = true;
+            const findingsErr = document.getElementById('findings-error');
+            const actionsErr = document.getElementById('actions-error');
+            findingsErr.textContent = '';
+            actionsErr.textContent = '';
+            if (!collect().findings) {
+              findingsErr.textContent = 'Findings are required.';
+              ok = false;
+            }
+            if (!collect().actionsTaken) {
+              actionsErr.textContent = 'Actions taken are required.';
+              ok = false;
+            }
+            return ok;
+          }
+
+          document.getElementById('investigation-form').addEventListener('submit', function (e) {
+            e.preventDefault();
+            if (!validate()) return;
+            const status = document.getElementById('inv-status').value;
+            const patch = Object.assign(collect(), {
+              status,
+              investigatorId: user.id,
+              startedAt: inv.startedAt || new Date().toISOString(),
+            });
+            saveInvestigation(incident.id, patch);
+            appendTimeline(incident.id, 'UNDER_INVESTIGATION', 'Investigation saved by ' + user.email);
+            showAlert(alertBox, 'success', 'Investigation for ' + incident.id + ' saved.');
+          });
+
+          document.getElementById('complete-btn').addEventListener('click', function () {
+            if (!validate()) return;
+            saveInvestigation(
+              incident.id,
+              Object.assign(collect(), {
+                status: 'COMPLETED',
+                investigatorId: user.id,
+                startedAt: inv.startedAt || new Date().toISOString(),
+                completedAt: new Date().toISOString(),
+              })
+            );
+            appendTimeline(incident.id, 'UNDER_INVESTIGATION', 'Investigation completed by ' + user.email);
+            loadUsers()
+              .filter((u) => u.role === 'ADMINISTRATOR')
+              .forEach((a) => notify(a.id, incident.id, 'Investigation for ' + incident.id + ' is complete. Resolution can now be recorded.'));
+            notifyUserByEmail(incident.reportedBy, incident.id, 'Investigation for ' + incident.id + ' has been completed.');
+            showAlert(alertBox, 'success', 'Investigation completed. An administrator can now record the resolution.');
+            openInvestigation(incident.id);
+          });
+
+          root.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        renderPicker();
+        if (requested) openInvestigation(requested);
+      }
+    </script>
+  </body>
+</html>

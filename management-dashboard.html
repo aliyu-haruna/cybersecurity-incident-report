@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Management Dashboard | Cybersecurity Incident Reporting System</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <header class="header" id="app-header"></header>
+    <p class="notice-bar">Academic Prototype &mdash; simulated authentication and browser localStorage. Not for production use.</p>
+    <div class="layout">
+      <nav class="sidebar" id="app-sidebar" aria-label="Main navigation"></nav>
+      <main class="main">
+        <h1 class="page-title">Management Dashboard</h1>
+        <p class="page-lead">Read-only statistics for institutional oversight.</p>
+        <div id="page-alert" role="status" aria-live="polite"></div>
+        <p class="disclaimer mb-4">
+          You have read-only access. Management cannot create, modify or close incidents. All figures are
+          calculated from the prototype&rsquo;s own browser data (<code>localStorage</code>) and the seeded
+          demonstration incidents &mdash; they are not live production statistics.
+        </p>
+        <div class="flex justify-between items-center mb-4" style="flex-wrap:wrap;gap:0.75rem">
+          <h2 class="section-title" style="margin:0">Incident overview</h2>
+          <a class="btn" href="management-reports.html">Open Reports</a>
+        </div>
+        <div id="report-root"></div>
+      </main>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/seed.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/stats.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+      seedIfMissing();
+      const user = requireAuth(['MANAGEMENT']);
+      if (user) {
+        renderLayout('dashboard');
+        const s = computeStats(loadIncidents());
+
+        function stat(label, value) {
+          return '<article class="stat-card"><p class="stat-value">' + value + '</p><p class="stat-label">' + escapeHtml(label) + '</p></article>';
+        }
+
+        function breakdown(title, rows) {
+          return (
+            '<section class="card mb-4"><h2 class="section-title">' + title + '</h2>' +
+            '<div class="table-wrapper"><table><caption class="sr-only">' + title + '</caption><thead><tr>' +
+            '<th scope="col">Category</th><th scope="col">Incidents</th><th scope="col">Share</th>' +
+            '</tr></thead><tbody>' +
+            rows
+              .map(([label, count]) => {
+                const pct = s.total ? Math.round((count / s.total) * 100) : 0;
+                return (
+                  '<tr><td>' + escapeHtml(label) + '</td><td>' + count + '</td><td>' + pct + '%</td></tr>'
+                );
+              })
+              .join('') +
+            '</tbody></table></div></section>'
+          );
+        }
+
+        document.getElementById('report-root').innerHTML =
+          '<section aria-label="Incident totals" class="stats-grid mb-6">' +
+          stat('Total incidents', s.total) +
+          stat('Submitted', s.submitted) +
+          stat('Under review', s.underReview) +
+          stat('Under investigation', s.underInvestigation) +
+          stat('Resolved', s.resolved) +
+          stat('Closed', s.closed) +
+          '</section>' +
+          '<div class="grid-2">' +
+          breakdown('Statistics by severity', ['Low', 'Medium', 'High', 'Critical'].map((sv) => [sv, s.bySeverity[sv] || 0])) +
+          breakdown('Statistics by incident type', [
+            'Phishing', 'Malware', 'Unauthorized Access', 'Data Breach',
+            'Account Compromise', 'Lost/Stolen Device', 'Other',
+          ].map((t) => [t, s.byType[t] || 0])) +
+          '</div>' +
+          '<section class="card"><h2 class="section-title">Status distribution</h2>' +
+          '<div class="table-wrapper"><table><caption class="sr-only">Status distribution</caption><thead><tr>' +
+          '<th scope="col">Status</th><th scope="col">Incidents</th></tr></thead><tbody>' +
+          STATUS_FLOW.map((st) => '<tr><td>' + badgeStatus(st) + '</td><td>' + (s.byStatus[st] || 0) + '</td></tr>').join('') +
+          '</tbody></table></div></section>';
+      }
+    </script>
+  </body>
+</html>

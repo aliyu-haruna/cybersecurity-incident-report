@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Resolution | Cybersecurity Incident Reporting System</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <header class="header" id="app-header"></header>
+    <p class="notice-bar">Academic Prototype &mdash; simulated authentication and browser localStorage. Not for production use.</p>
+    <div class="layout">
+      <nav class="sidebar" id="app-sidebar" aria-label="Main navigation"></nav>
+      <main class="main">
+        <h1 class="page-title">Resolution</h1>
+        <p class="page-lead">Record the outcome of the investigation and close the incident.</p>
+        <div id="page-alert" role="status" aria-live="polite"></div>
+        <div id="resolution-root" aria-live="polite"></div>
+      </main>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/seed.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+      seedIfMissing();
+      const user = requireAuth(['ADMINISTRATOR']);
+      if (user) {
+        renderLayout();
+        const alertBox = document.getElementById('page-alert');
+        const root = document.getElementById('resolution-root');
+        const requested = new URLSearchParams(window.location.search).get('id');
+
+        function openResolution(id) {
+          const incident = getIncidentById(id);
+          if (!incident) {
+            root.innerHTML = '';
+            showAlert(alertBox, 'error', 'That incident could not be found.');
+            return;
+          }
+          const inv = getInvestigation(incident.id);
+          const res = getResolution(incident.id);
+
+          const investigationBlock = inv
+            ? '<section class="card mb-4"><h2 class="section-title">Investigation summary</h2>' +
+              '<dl class="detail-grid mb-2">' +
+              '<div class="detail-item"><dt>Status</dt><dd>' + escapeHtml(inv.status.replace(/_/g, ' ')) + '</dd></div>' +
+              '<div class="detail-item"><dt>Completed</dt><dd>' + escapeHtml(inv.completedAt ? formatDate(inv.completedAt) : 'In progress') + '</dd></div>' +
+              '</dl>' +
+              '<div class="detail-item mb-2"><dt>Findings</dt><dd>' + escapeHtml(inv.findings || 'Not recorded') + '</dd></div>' +
+              '<div class="detail-item"><dt>Actions taken</dt><dd>' + escapeHtml(inv.actionsTaken || 'Not recorded') + '</dd></div></section>'
+            : '<section class="card mb-4"><h2 class="section-title">Investigation summary</h2>' +
+              '<p class="readonly-note">No investigation record exists for this incident.</p></section>';
+
+          let workflow;
+          if (incident.status === 'UNDER_INVESTIGATION') {
+            if (!inv || inv.status !== 'COMPLETED') {
+              workflow =
+                '<section class="card"><h2 class="section-title">Resolution</h2>' +
+                '<p class="readonly-note">The investigation has not been completed yet, so a resolution cannot be recorded. ' +
+                'The status of this incident remains UNDER_INVESTIGATION.</p>' +
+                '<a class="btn btn-secondary mt-2" href="incident-management.html?id=' + encodeURIComponent(incident.id) + '">Back to management</a></section>';
+            } else {
+              workflow =
+                '<form class="card" id="resolution-form" novalidate>' +
+                '<h2 class="section-title">Record resolution</h2>' +
+                '<div class="form-group"><label class="label" for="res-description">Resolution description</label>' +
+                '<textarea class="textarea" id="res-description" rows="5" maxlength="4000"></textarea>' +
+                '<p class="field-error" id="res-description-error"></p></div>' +
+                '<div class="form-group"><label class="label" for="res-date">Resolution date</label>' +
+                '<input class="input" type="date" id="res-date" />' +
+                '<p class="field-error" id="res-date-error"></p></div>' +
+                '<div class="action-row">' +
+                '<button class="btn" type="submit">Mark as Resolved</button>' +
+                '<a class="btn btn-secondary" href="incident-management.html?id=' + encodeURIComponent(incident.id) + '">Cancel</a>' +
+                '</div></form>';
+            }
+          } else if (incident.status === 'RESOLVED') {
+            workflow =
+              '<section class="card"><h2 class="section-title">Resolution</h2>' +
+              '<div class="detail-item mb-2"><dt>Description</dt><dd>' + escapeHtml((res && res.description) || 'Not recorded') + '</dd></div>' +
+              '<p class="readonly-note mb-2">Resolved by ' + escapeHtml((res && res.resolvedBy) || 'unknown') +
+              (res && res.resolvedAt ? ' on ' + escapeHtml(formatDate(res.resolvedAt)) : '') + '</p>' +
+              '<button class="btn" type="button" id="close-btn">Close Incident</button> ' +
+              '<a class="btn btn-secondary" href="incident-management.html?id=' + encodeURIComponent(incident.id) + '">Back to management</a>' +
+              '</section>';
+          } else if (incident.status === 'CLOSED') {
+            workflow =
+              '<section class="card"><h2 class="section-title">Closed</h2>' +
+              '<p class="readonly-note">This incident was closed on ' +
+              escapeHtml((res && res.closedAt ? formatDate(res.closedAt) : 'an earlier date')) + '. No further actions are available.</p>' +
+              '<a class="btn btn-secondary mt-2" href="incident-management.html?id=' + encodeURIComponent(incident.id) + '">Back to management</a></section>';
+          } else {
+            workflow =
+              '<section class="card"><h2 class="section-title">Not available</h2>' +
+              '<p class="readonly-note">A resolution can only be recorded while the incident is UNDER_INVESTIGATION. ' +
+              'This incident is currently ' + escapeHtml(incident.status.replace(/_/g, ' ')) + '.</p>' +
+              '<a class="btn btn-secondary mt-2" href="incident-management.html?id=' + encodeURIComponent(incident.id) + '">Back to management</a></section>';
+          }
+
+          root.innerHTML =
+            '<section class="card mb-4"><h2 class="section-title">' + escapeHtml(incident.id) + ' &mdash; ' + escapeHtml(incident.title) + '</h2>' +
+            '<dl class="detail-grid">' +
+            '<div class="detail-item"><dt>Severity</dt><dd>' + badgeSeverity(incident.severity) + '</dd></div>' +
+            '<div class="detail-item"><dt>Status</dt><dd>' + badgeStatus(incident.status) + '</dd></div>' +
+            '<div class="detail-item"><dt>Reporter</dt><dd>' + escapeHtml(incident.reportedBy) + '</dd></div>' +
+            '<div class="detail-item"><dt>Investigator</dt><dd>' + escapeHtml(incident.assignedInvestigator || 'Unassigned') + '</dd></div>' +
+            '</dl></section>' +
+            investigationBlock + workflow;
+
+          const form = document.getElementById('resolution-form');
+          if (form) {
+            form.addEventListener('submit', function (e) {
+              e.preventDefault();
+              const desc = document.getElementById('res-description').value.trim();
+              const dateVal = document.getElementById('res-date').value;
+              let ok = true;
+              document.getElementById('res-description-error').textContent = '';
+              document.getElementById('res-date-error').textContent = '';
+
+              if (!desc) {
+                document.getElementById('res-description-error').textContent = 'A resolution description is required.';
+                ok = false;
+              } else if (desc.length < 20) {
+                document.getElementById('res-description-error').textContent =
+                  'Please provide at least 20 characters describing the resolution.';
+                ok = false;
+              }
+              if (!dateVal) {
+                document.getElementById('res-date-error').textContent = 'A resolution date is required.';
+                ok = false;
+              } else if (isNaN(new Date(dateVal).getTime())) {
+                document.getElementById('res-date-error').textContent = 'Enter a valid resolution date.';
+                ok = false;
+              }
+              if (!ok) return;
+
+              const current = getIncidentById(id);
+              if (!current || current.status !== 'UNDER_INVESTIGATION') {
+                showAlert(alertBox, 'error', 'This incident is no longer awaiting resolution.');
+                openResolution(id);
+                return;
+              }
+
+              const resolvedAt = new Date(dateVal).toISOString();
+              saveResolution(id, { description: desc, resolvedBy: user.email, resolvedAt });
+              updateIncident(id, { status: 'RESOLVED' });
+              appendTimeline(id, 'RESOLVED', 'Resolution recorded by ' + user.email);
+              notifyUserByEmail(current.reportedBy, id, 'Incident ' + id + ' has been resolved.');
+              showAlert(alertBox, 'success', 'Incident ' + id + ' marked as RESOLVED.');
+              openResolution(id);
+            });
+          }
+
+          const closeBtn = document.getElementById('close-btn');
+          if (closeBtn) {
+            closeBtn.addEventListener('click', function () {
+              const current = getIncidentById(id);
+              if (!current || current.status !== 'RESOLVED') {
+                showAlert(alertBox, 'error', 'Only a RESOLVED incident can be closed.');
+                openResolution(id);
+                return;
+              }
+              saveResolution(id, { closedAt: new Date().toISOString() });
+              updateIncident(id, { status: 'CLOSED' });
+              appendTimeline(id, 'CLOSED', 'Incident closed by ' + user.email);
+              notifyUserByEmail(current.reportedBy, id, 'Incident ' + id + ' has been closed.');
+              showAlert(alertBox, 'success', 'Incident ' + id + ' closed.');
+              openResolution(id);
+            });
+          }
+        }
+
+        // Without an id, list the incidents that are at a resolution or
+        // closure stage so the Resolution page is usable from the sidebar.
+        function renderPicker() {
+          const candidates = loadIncidents()
+            .filter((i) => {
+              if (i.status === 'RESOLVED' || i.status === 'CLOSED') return true;
+              if (i.status !== 'UNDER_INVESTIGATION') return false;
+              const inv = getInvestigation(i.id);
+              return inv && inv.status === 'COMPLETED';
+            })
+            .sort((a, b) => (a.id < b.id ? 1 : -1));
+
+          const blocked = loadIncidents().filter(
+            (i) => i.status === 'UNDER_INVESTIGATION' && (!getInvestigation(i.id) || getInvestigation(i.id).status !== 'COMPLETED')
+          );
+
+          root.innerHTML =
+            '<section class="card mb-4"><h2 class="section-title">Select an incident</h2>' +
+            '<p class="source-note">An incident can be marked RESOLVED only after its investigation is complete, ' +
+            'and only a RESOLVED incident can be closed.</p>' +
+            (candidates.length
+              ? '<div class="table-wrapper"><table><caption class="sr-only">Incidents awaiting resolution or closure</caption>' +
+                '<thead><tr><th scope="col">ID</th><th scope="col">Title</th><th scope="col">Status</th>' +
+                '<th scope="col">Investigation</th><th scope="col">Next step</th><th scope="col">Action</th>' +
+                '</tr></thead><tbody>' +
+                candidates
+                  .map((i) => {
+                    const inv = getInvestigation(i.id);
+                    const next = i.status === 'CLOSED' ? 'None — closed' : i.status === 'RESOLVED' ? 'Close incident' : 'Mark as resolved';
+                    return (
+                      '<tr><td>' + escapeHtml(i.id) + '</td><td>' + escapeHtml(i.title) + '</td><td>' + badgeStatus(i.status) +
+                      '</td><td>' + escapeHtml(inv ? inv.status.replace(/_/g, ' ') : 'Not started') + '</td><td>' +
+                      escapeHtml(next) + '</td><td><a href="resolution.html?id=' + encodeURIComponent(i.id) + '">Open</a></td></tr>'
+                    );
+                  })
+                  .join('') +
+                '</tbody></table></div>'
+              : '<p class="empty-state">No incident is currently awaiting a resolution or closure.</p>') +
+            '</section>' +
+            (blocked.length
+              ? '<section class="card"><h2 class="section-title">Blocked from resolution</h2>' +
+                '<p class="source-note">The investigation for these incidents is not complete, so a resolution cannot be recorded yet.</p>' +
+                '<div class="table-wrapper"><table><caption class="sr-only">Incidents awaiting investigation completion</caption>' +
+                '<thead><tr><th scope="col">ID</th><th scope="col">Title</th><th scope="col">Status</th>' +
+                '<th scope="col">Investigation</th><th scope="col">Action</th></tr></thead><tbody>' +
+                blocked
+                  .map((i) => {
+                    const inv = getInvestigation(i.id);
+                    return (
+                      '<tr><td>' + escapeHtml(i.id) + '</td><td>' + escapeHtml(i.title) + '</td><td>' + badgeStatus(i.status) +
+                      '</td><td>' + escapeHtml(inv ? inv.status.replace(/_/g, ' ') : 'Not started') + '</td>' +
+                      '<td><a href="incident-management.html?id=' + encodeURIComponent(i.id) + '">Review</a></td></tr>'
+                    );
+                  })
+                  .join('') +
+                '</tbody></table></div></section>'
+              : '');
+        }
+
+        if (requested) {
+          openResolution(requested);
+        } else {
+          renderPicker();
+        }
+      }
+    </script>
+  </body>
+</html>

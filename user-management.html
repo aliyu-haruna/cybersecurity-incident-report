@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>User Management | Cybersecurity Incident Reporting System</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <header class="header" id="app-header"></header>
+    <p class="notice-bar">Academic Prototype &mdash; simulated authentication and browser localStorage. Not for production use.</p>
+    <div class="layout">
+      <nav class="sidebar" id="app-sidebar" aria-label="Main navigation"></nav>
+      <main class="main">
+        <h1 class="page-title">User Management</h1>
+        <p class="page-lead">View prototype accounts, review their roles, and activate or deactivate access.</p>
+        <div id="page-alert" role="status" aria-live="polite"></div>
+        <p class="disclaimer mb-4">
+          Accounts are stored in this browser only. Passwords are plain text in the prototype and cannot be
+          edited here; there is no password hashing, no account creation, and no server-side identity
+          service. Deactivating an account blocks sign-in and removes that investigator from the list of
+          people who can be assigned work.
+        </p>
+
+        <section id="stats" class="stats-grid mb-6" aria-label="Account summary"></section>
+
+        <form class="filters card" id="filter-form" role="search">
+          <div class="field">
+            <label class="label" for="search">Search</label>
+            <input class="input" type="search" id="search" placeholder="Name or email" />
+          </div>
+          <div class="field">
+            <label class="label" for="role-filter">Role</label>
+            <select class="select" id="role-filter">
+              <option value="">All roles</option>
+              <option>REPORTER</option>
+              <option>INVESTIGATOR</option>
+              <option>ADMINISTRATOR</option>
+              <option>MANAGEMENT</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="label" for="active-filter">Account state</label>
+            <select class="select" id="active-filter">
+              <option value="">All accounts</option>
+              <option value="active">Active</option>
+              <option value="inactive">Deactivated</option>
+            </select>
+          </div>
+          <button class="btn btn-secondary" type="reset">Clear</button>
+        </form>
+
+        <div id="user-table" aria-live="polite"></div>
+      </main>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/seed.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+      seedIfMissing();
+      const user = requireAuth(['ADMINISTRATOR']);
+      if (user) {
+        renderLayout();
+
+        const ROLES = ['REPORTER', 'INVESTIGATOR', 'ADMINISTRATOR', 'MANAGEMENT'];
+        const alertBox = document.getElementById('page-alert');
+        const host = document.getElementById('user-table');
+        const search = document.getElementById('search');
+        const roleFilter = document.getElementById('role-filter');
+        const activeFilter = document.getElementById('active-filter');
+
+        function renderStats() {
+          const users = loadUsers();
+          const active = users.filter((u) => u.isActive !== false).length;
+          document.getElementById('stats').innerHTML = [
+            ['Accounts', users.length],
+            ['Active', active],
+            ['Deactivated', users.length - active],
+            ['Investigators available', availableInvestigators().length],
+          ]
+            .map(
+              ([label, value]) =>
+                '<article class="stat-card"><p class="stat-value">' + value + '</p><p class="stat-label">' + label + '</p></article>'
+            )
+            .join('');
+        }
+
+        function render() {
+          renderStats();
+          const term = search.value.trim().toLowerCase();
+          const rows = loadUsers()
+            .filter((u) => !term || (u.fullName + ' ' + u.email).toLowerCase().includes(term))
+            .filter((u) => !roleFilter.value || u.role === roleFilter.value)
+            .filter((u) => {
+              if (activeFilter.value === 'active') return u.isActive !== false;
+              if (activeFilter.value === 'inactive') return u.isActive === false;
+              return true;
+            });
+
+          if (!rows.length) {
+            host.innerHTML = '<div class="card"><p class="empty-state">No accounts match the current filters.</p></div>';
+            return;
+          }
+
+          host.innerHTML =
+            '<div class="card"><div class="table-wrapper"><table>' +
+            '<caption class="sr-only">Prototype user accounts</caption><thead><tr>' +
+            '<th scope="col">ID</th><th scope="col">Name</th><th scope="col">Email</th>' +
+            '<th scope="col">Role</th><th scope="col">State</th>' +
+            '<th scope="col">Open incidents</th><th scope="col">Actions</th>' +
+            '</tr></thead><tbody>' +
+            rows
+              .map((u) => {
+                const isSelf = u.id === user.id;
+                const isActive = u.isActive !== false;
+                const openCount =
+                  u.role === 'INVESTIGATOR' ? assignedCount(u.email) : countReportedOpen(u.email);
+                return (
+                  '<tr>' +
+                  '<td>' + escapeHtml(u.id) + '</td>' +
+                  '<td>' + escapeHtml(u.fullName) + (isSelf ? ' <span class="tag">You</span>' : '') + '</td>' +
+                  '<td>' + escapeHtml(u.email) + '</td>' +
+                  '<td><label class="sr-only" for="role-' + escapeHtml(u.id) + '">Role for ' + escapeHtml(u.fullName) + '</label>' +
+                  '<select class="select" id="role-' + escapeHtml(u.id) + '" data-role-for="' + escapeHtml(u.id) + '"' +
+                  (isSelf ? ' disabled title="You cannot change your own role"' : '') + '>' +
+                  ROLES.map((r) => '<option' + (r === u.role ? ' selected' : '') + '>' + r + '</option>').join('') +
+                  '</select></td>' +
+                  '<td><span class="tag ' + (isActive ? 'tag-active">Active' : 'tag-inactive">Deactivated') + '</span></td>' +
+                  '<td>' + openCount + '</td>' +
+                  '<td><button class="btn btn-secondary" type="button" data-toggle="' + escapeHtml(u.id) + '"' +
+                  (isSelf ? ' disabled title="You cannot deactivate your own account"' : '') + '>' +
+                  (isActive ? 'Deactivate' : 'Activate') + '</button></td>' +
+                  '</tr>'
+                );
+              })
+              .join('') +
+            '</tbody></table></div></div>';
+
+          host.querySelectorAll('[data-role-for]').forEach(function (sel) {
+            sel.addEventListener('change', function () {
+              const id = sel.getAttribute('data-role-for');
+              const target = findUserById(id);
+              if (!target) return showAlert(alertBox, 'error', 'That account could not be found.');
+              if (id === user.id) return showAlert(alertBox, 'error', 'You cannot change your own role.');
+              if (target.role === sel.value) return;
+              const previous = target.role;
+              if (
+                previous === 'INVESTIGATOR' &&
+                sel.value !== 'INVESTIGATOR' &&
+                assignedCount(target.email) > 0
+              ) {
+                sel.value = previous;
+                return showAlert(
+                  alertBox,
+                  'error',
+                  target.fullName + ' still has open assigned incidents. Reassign that work first.'
+                );
+              }
+              updateUser(id, { role: sel.value });
+              showAlert(
+                alertBox,
+                'success',
+                target.fullName + ' changed from ' + previous + ' to ' + sel.value + '.'
+              );
+              render();
+            });
+          });
+
+          host.querySelectorAll('[data-toggle]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              const id = btn.getAttribute('data-toggle');
+              const target = findUserById(id);
+              if (!target) return showAlert(alertBox, 'error', 'That account could not be found.');
+              if (id === user.id) return showAlert(alertBox, 'error', 'You cannot deactivate your own account.');
+              const nextActive = target.isActive === false;
+              updateUser(id, { isActive: nextActive });
+              showAlert(
+                alertBox,
+                'success',
+                target.fullName + ' is now ' + (nextActive ? 'active' : 'deactivated') + '.'
+              );
+              render();
+            });
+          });
+        }
+
+        function countReportedOpen(email) {
+          const target = String(email || '').toLowerCase();
+          return loadIncidents().filter(
+            (i) => String(i.reportedBy || '').toLowerCase() === target && statusIndex(i.status) < 3
+          ).length;
+        }
+
+        search.addEventListener('input', render);
+        roleFilter.addEventListener('change', render);
+        activeFilter.addEventListener('change', render);
+        document.getElementById('filter-form').addEventListener('reset', function () {
+          setTimeout(render, 0);
+        });
+        render();
+      }
+    </script>
+  </body>
+</html>

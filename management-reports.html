@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reports | Cybersecurity Incident Reporting System</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <header class="header" id="app-header"></header>
+    <p class="notice-bar">Academic Prototype &mdash; simulated authentication and browser localStorage. Not for production use.</p>
+    <div class="layout">
+      <nav class="sidebar" id="app-sidebar" aria-label="Main navigation"></nav>
+      <main class="main">
+        <h1 class="page-title">Reports</h1>
+        <p class="page-lead">Read-only incident summaries for institutional oversight.</p>
+        <div id="page-alert" role="status" aria-live="polite"></div>
+        <p class="disclaimer mb-4">
+          Management has read-only access. Every figure below is calculated at page load from the
+          prototype&rsquo;s own browser data (<code>localStorage</code>) and the seeded demonstration
+          incidents &mdash; these are not live production statistics, and no reporting server or
+          database is involved.
+        </p>
+
+        <form class="filters card" id="filter-form" role="search">
+          <div class="field">
+            <label class="label" for="search">Search</label>
+            <input class="input" type="search" id="search" placeholder="ID, title or reporter" />
+          </div>
+          <div class="field">
+            <label class="label" for="severity-filter">Severity</label>
+            <select class="select" id="severity-filter">
+              <option value="">All severities</option>
+              <option>Low</option>
+              <option>Medium</option>
+              <option>High</option>
+              <option>Critical</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="label" for="type-filter">Incident type</label>
+            <select class="select" id="type-filter">
+              <option value="">All types</option>
+              <option>Phishing</option>
+              <option>Malware</option>
+              <option>Unauthorized Access</option>
+              <option>Data Breach</option>
+              <option>Account Compromise</option>
+              <option>Lost/Stolen Device</option>
+              <option>Other</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="label" for="from-date">Reported from</label>
+            <input class="input" type="date" id="from-date" />
+          </div>
+          <div class="field">
+            <label class="label" for="to-date">Reported to</label>
+            <input class="input" type="date" id="to-date" />
+          </div>
+          <button class="btn btn-secondary" type="reset">Clear filters</button>
+        </form>
+
+        <section aria-label="Incident totals" class="stats-grid mb-6" id="totals"></section>
+
+        <div class="grid-2 mb-6" id="charts"></div>
+
+        <section class="card mb-4" id="trend-section"></section>
+        <section class="card" id="register"></section>
+      </main>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/seed.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/stats.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+      seedIfMissing();
+      const user = requireAuth(['MANAGEMENT']);
+      if (user) {
+        renderLayout();
+
+        const TYPES = ['Phishing', 'Malware', 'Unauthorized Access', 'Data Breach', 'Account Compromise', 'Lost/Stolen Device', 'Other'];
+        const SEVERITIES = ['Low', 'Medium', 'High', 'Critical'];
+
+        const search = document.getElementById('search');
+        const severityFilter = document.getElementById('severity-filter');
+        const typeFilter = document.getElementById('type-filter');
+        const fromDate = document.getElementById('from-date');
+        const toDate = document.getElementById('to-date');
+
+        function filtered() {
+          const term = search.value.trim().toLowerCase();
+          const from = fromDate.value ? new Date(fromDate.value) : null;
+          const to = toDate.value ? new Date(toDate.value) : null;
+          if (to && !isNaN(to.getTime())) to.setHours(23, 59, 59, 999);
+          return loadIncidents()
+            .filter((i) => !term || (i.id + ' ' + i.title + ' ' + i.reportedBy + ' ' + (i.assignedInvestigator || '')).toLowerCase().includes(term))
+            .filter((i) => !severityFilter.value || i.severity === severityFilter.value)
+            .filter((i) => !typeFilter.value || i.type === typeFilter.value)
+            .filter((i) => {
+              const d = new Date(i.createdAt || i.dateTime);
+              if (isNaN(d.getTime())) return true;
+              if (from && !isNaN(from.getTime()) && d < from) return false;
+              if (to && !isNaN(to.getTime()) && d > to) return false;
+              return true;
+            })
+            .sort((a, b) => (a.id < b.id ? 1 : -1));
+        }
+
+        // Proportional meter built from plain CSS. No charting library is used.
+        function meter(label, count, total) {
+          const pct = total ? Math.round((count / total) * 100) : 0;
+          return (
+            '<div class="meter">' +
+            '<div class="meter-head"><span>' + escapeHtml(label) + '</span>' +
+            '<span class="readonly-note">' + count + ' &middot; ' + pct + '%</span></div>' +
+            '<div class="meter-track"><div class="meter-fill' + (count ? '' : ' muted') + '" style="width:' + pct + '%"></div></div>' +
+            '</div>'
+          );
+        }
+
+        function render() {
+          const rows = filtered();
+          const s = computeStats(rows);
+
+          document.getElementById('totals').innerHTML = [
+            ['Total incidents', s.total],
+            ['Open incidents', s.open],
+            ['Resolved', s.resolved],
+            ['Closed', s.closed],
+          ]
+            .map(
+              ([label, value]) =>
+                '<article class="stat-card"><p class="stat-value">' + value + '</p><p class="stat-label">' + label + '</p></article>'
+            )
+            .join('');
+
+          document.getElementById('charts').innerHTML =
+            '<section class="card"><h2 class="section-title">Incidents by severity</h2>' +
+            (rows.length
+              ? SEVERITIES.map((sv) => meter(sv, s.bySeverity[sv] || 0, s.total)).join('')
+              : '<p class="empty-state">No incidents match the current filters.</p>') +
+            '</section>' +
+            '<section class="card"><h2 class="section-title">Incidents by type</h2>' +
+            (rows.length
+              ? TYPES.map((t) => meter(t, s.byType[t] || 0, s.total)).join('')
+              : '<p class="empty-state">No incidents match the current filters.</p>') +
+            '</section>';
+
+          const trend = monthlyCounts(rows, 6);
+          const max = trend.reduce((m, b) => Math.max(m, b.count), 0);
+          document.getElementById('trend-section').innerHTML =
+            '<h2 class="section-title">Incident volume by month</h2>' +
+            '<p class="source-note">Counted from the incident report date over the last six months ' +
+            'in this browser. This is a simple volume breakdown, not a predictive or automated trend analysis.</p>' +
+            '<div class="table-wrapper"><table><caption class="sr-only">Incidents reported per month</caption>' +
+            '<thead><tr><th scope="col">Month</th><th scope="col">Incidents</th><th scope="col">Share of reporting period</th>' +
+            '</tr></thead><tbody>' +
+            trend
+              .map((b) => {
+                const pct = max ? Math.round((b.count / max) * 100) : 0;
+                return (
+                  '<tr><td>' + escapeHtml(b.label) + '</td><td>' + b.count + '</td>' +
+                  '<td><div class="meter-track"><div class="meter-fill' + (b.count ? '' : ' muted') + '" style="width:' + pct + '%"></div></div></td></tr>'
+                );
+              })
+              .join('') +
+            '</tbody></table></div>';
+
+          document.getElementById('register').innerHTML =
+            '<h2 class="section-title">Incident register</h2>' +
+            (rows.length
+              ? '<div class="table-wrapper"><table><caption class="sr-only">All incidents matching the current filters</caption>' +
+                '<thead><tr><th scope="col">ID</th><th scope="col">Title</th><th scope="col">Type</th>' +
+                '<th scope="col">Severity</th><th scope="col">Status</th><th scope="col">Reporter</th>' +
+                '<th scope="col">Investigator</th><th scope="col">Reported</th></tr></thead><tbody>' +
+                rows
+                  .map(
+                    (i) =>
+                      '<tr><td>' + escapeHtml(i.id) + '</td><td>' + escapeHtml(i.title) + '</td><td>' + badgeType(i.type) +
+                      '</td><td>' + badgeSeverity(i.severity) + '</td><td>' + badgeStatus(i.status) + '</td><td>' +
+                      escapeHtml(i.reportedBy) + '</td><td>' + escapeHtml(i.assignedInvestigator || 'Unassigned') + '</td><td>' +
+                      escapeHtml(formatDate(i.createdAt)) + '</td></tr>'
+                  )
+                  .join('') +
+                '</tbody></table></div>'
+              : '<p class="empty-state">No incidents match the current filters.</p>');
+        }
+
+        search.addEventListener('input', render);
+        severityFilter.addEventListener('change', render);
+        typeFilter.addEventListener('change', render);
+        fromDate.addEventListener('change', render);
+        toDate.addEventListener('change', render);
+        document.getElementById('filter-form').addEventListener('reset', function () {
+          setTimeout(render, 0);
+        });
+        render();
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reports | Cybersecurity Incident Reporting System</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <header class="header" id="app-header"></header>
+    <p class="notice-bar">Academic Prototype &mdash; simulated authentication and browser localStorage. Not for production use.</p>
+    <div class="layout">
+      <nav class="sidebar" id="app-sidebar" aria-label="Main navigation"></nav>
+      <main class="main">
+        <h1 class="page-title">Reports</h1>
+        <p class="page-lead">Incident distribution by status, severity and type.</p>
+        <div id="page-alert" role="status" aria-live="polite"></div>
+        <div id="report-root"></div>
+      </main>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/seed.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/stats.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+      seedIfMissing();
+      const user = requireAuth(['ADMINISTRATOR']);
+      if (user) {
+        renderLayout('reports');
+        const s = computeStats(loadIncidents());
+
+        const bar = (count, total) => {
+          const pct = total ? Math.round((count / total) * 100) : 0;
+          return '<div class="mb-2"><div class="flex justify-between mb-1"><span>' +
+            pct + '%</span><span class="readonly-note">' + count + ' of ' + total + '</span></div>' +
+            '<div style="background:#e5e7eb;border-radius:999px;height:8px;overflow:hidden">' +
+            '<div style="background:#0f7bff;height:8px;width:' + pct + '%"></div></div></div>';
+        };
+
+        document.getElementById('report-root').innerHTML = [
+          ['By status', STATUS_FLOW.map((st) => [st, s.byStatus[st] || 0])],
+          ['By severity', ['Low', 'Medium', 'High', 'Critical'].map((sv) => [sv, s.bySeverity[sv] || 0])],
+          ['By type', ['Phishing', 'Malware', 'Unauthorized Access', 'Data Breach', 'Account Compromise', 'Lost/Stolen Device', 'Other']
+            .map((t) => [t, s.byType[t] || 0])],
+        ]
+          .map(
+            ([title, rows]) =>
+              '<section class="card mb-4"><h2 class="section-title">' + title + '</h2>' +
+              rows.map(([label, count]) => '<p class="mb-1"><strong>' + escapeHtml(label) + '</strong></p>' + bar(count, s.total)).join('') +
+              '</section>'
+          )
+          .join('') +
+          '<section class="card"><h2 class="section-title">Full incident register</h2>' +
+          (loadIncidents().length
+            ? '<div class="table-wrapper"><table><caption class="sr-only">All incidents</caption><thead><tr>' +
+              '<th scope="col">ID</th><th scope="col">Title</th><th scope="col">Type</th><th scope="col">Severity</th>' +
+              '<th scope="col">Status</th><th scope="col">Reporter</th><th scope="col">Investigator</th><th scope="col">Reported</th>' +
+              '</tr></thead><tbody>' +
+              loadIncidents()
+                .slice()
+                .sort((a, b) => (a.id < b.id ? 1 : -1))
+                .map(
+                  (i) => '<tr><td>' + escapeHtml(i.id) + '</td><td>' + escapeHtml(i.title) + '</td><td>' + badgeType(i.type) +
+                    '</td><td>' + badgeSeverity(i.severity) + '</td><td>' + badgeStatus(i.status) + '</td><td>' +
+                    escapeHtml(i.reportedBy) + '</td><td>' + escapeHtml(i.assignedInvestigator || 'Unassigned') + '</td><td>' +
+                    escapeHtml(formatDate(i.createdAt)) + '</td></tr>'
+                )
+                .join('') +
+              '</tbody></table></div>'
+            : '<p class="empty-state">No incidents recorded.</p>') +
+          '</section>';
+      }
+    </script>
+  </body>
+</html>

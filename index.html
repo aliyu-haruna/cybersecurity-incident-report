@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Login | Cybersecurity Incident Reporting System</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/auth.css" />
+  </head>
+  <body>
+    <main class="auth-wrap">
+      <section class="auth-card" aria-labelledby="login-heading">
+        <h1 id="login-heading">Cybersecurity Incident Reporting System</h1>
+        <p class="auth-sub">
+          University Security Operations Centre &mdash; report, review, investigate and resolve
+          security incidents.
+        </p>
+
+        <div id="login-alert" role="alert" aria-live="assertive"></div>
+
+        <form id="login-form" novalidate>
+          <div class="form-group">
+            <label class="label" for="email">Email address</label>
+            <input
+              class="input"
+              type="email"
+              id="email"
+              name="email"
+              autocomplete="username"
+              required
+              aria-describedby="email-error"
+            />
+            <p class="field-error" id="email-error" aria-live="polite"></p>
+          </div>
+
+          <div class="form-group">
+            <label class="label" for="password">Password</label>
+            <input
+              class="input"
+              type="password"
+              id="password"
+              name="password"
+              autocomplete="current-password"
+              required
+              aria-describedby="password-error"
+            />
+            <p class="field-error" id="password-error" aria-live="polite"></p>
+          </div>
+
+          <button class="btn btn-block" type="submit">Sign in</button>
+        </form>
+
+        <a class="btn btn-secondary btn-block" href="register.html">Register as a Reporter</a>
+        <p class="auth-sub">
+          Self-registration creates a Reporter account. Administrator, Investigator and Management access
+          is assigned by an administrator from the User Management screen.
+        </p>
+
+        <section class="demo-box" aria-labelledby="demo-heading">
+          <h2 id="demo-heading">Demo Accounts</h2>
+          <p class="auth-sub">
+            Password for every demo account is <code>password123</code>.
+          </p>
+          <table class="demo-table">
+            <caption class="sr-only">Demo accounts and their roles</caption>
+            <thead>
+              <tr>
+                <th scope="col">Role</th>
+                <th scope="col">Email</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Reporter</td>
+                <td><button class="link-btn" type="button" data-demo="aliyu@example.com">aliyu@example.com</button></td>
+              </tr>
+              <tr>
+                <td>Investigator</td>
+                <td><button class="link-btn" type="button" data-demo="hafsa@example.com">hafsa@example.com</button></td>
+              </tr>
+              <tr>
+                <td>Investigator</td>
+                <td><button class="link-btn" type="button" data-demo="investigator2@example.com">investigator2@example.com</button></td>
+              </tr>
+              <tr>
+                <td>Administrator</td>
+                <td><button class="link-btn" type="button" data-demo="aisha@example.com">aisha@example.com</button></td>
+              </tr>
+              <tr>
+                <td>Management</td>
+                <td><button class="link-btn" type="button" data-demo="jamilu@example.com">jamilu@example.com</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <p class="disclaimer auth-disclaimer">
+          Academic Prototype &mdash; Authentication and data storage are simulated for demonstration
+          purposes. Passwords are held in plain text in this browser and are not hashed. This prototype
+          is not intended for production use.
+        </p>
+      </section>
+    </main>
+
+    <script src="js/utils.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/seed.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+      seedIfMissing();
+
+      const form = document.getElementById('login-form');
+      const alertBox = document.getElementById('login-alert');
+
+      function setFieldError(id, message) {
+        const el = document.getElementById(id + '-error');
+        if (el) el.textContent = message || '';
+        const input = document.getElementById(id);
+        if (input) input.setAttribute('aria-invalid', message ? 'true' : 'false');
+      }
+
+      function validate() {
+        let valid = true;
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value;
+
+        setFieldError('email', '');
+        setFieldError('password', '');
+
+        if (!email) {
+          setFieldError('email', 'Email address is required.');
+          valid = false;
+        } else if (!isValidEmail(email)) {
+          setFieldError('email', 'Enter a valid email address, for example name@example.com.');
+          valid = false;
+        }
+
+        if (!password) {
+          setFieldError('password', 'Password is required.');
+          valid = false;
+        }
+        return valid;
+      }
+
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        alertBox.innerHTML = '';
+        if (!validate()) return;
+
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value;
+        const result = login(email, password);
+
+        if (result.ok) {
+          window.location.href = result.redirect;
+        } else {
+          showAlert(alertBox, 'error', result.message);
+        }
+      });
+
+      document.querySelectorAll('[data-demo]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          document.getElementById('email').value = btn.getAttribute('data-demo');
+          document.getElementById('password').value = 'password123';
+          document.getElementById('password').focus();
+        });
+      });
+    </script>
+  </body>
+</html>
